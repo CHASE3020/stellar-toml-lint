@@ -10,8 +10,17 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import process from 'node:process';
 import { lint, lintDomain, finalize } from './lint.js';
+import { lspMain } from './lsp.js';
 import { checkNetworkAccounts } from './network-checks.js';
-import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
+import {
+  formatCheckstyle,
+  formatGithub,
+  formatJson,
+  formatNdjson,
+  formatJunit,
+  formatSarif,
+  formatText,
+} from './reporters.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
@@ -27,12 +36,15 @@ import { generateOpenApiSpec } from './generators/openapi.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
 import { runHealthCheck, formatHealthCheckTable } from './health-check.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
+import { runLspServer } from './lsp/server.js';
+import { checkSep10Replay } from './protocols/sep10-replay.js';
+import { checkCollateralGovernance } from './security/collateral-governance.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
 
-type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit';
+type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit' | 'checkstyle';
 
 interface Cli {
   noSuggestions?: boolean;
@@ -46,6 +58,7 @@ interface Cli {
   rules: RuleOverrides;
   maxWarnings?: number;
   checkNetwork: boolean;
+  verifySep10: boolean;
   badgeSvg?: string;
   badgeJson?: string;
   exportApConfig?: boolean;
@@ -55,7 +68,7 @@ interface Cli {
   interactive?: boolean;
   checkContracts: boolean;
   sorobanRpc?: string;
-  healthCheck?: boolean;
+  lsp?: boolean;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -70,7 +83,8 @@ USAGE
 OPTIONS
   -d, --domain <domain>   Domain serving the file. Enables CORS, content-type and
                           ORG_URL same-domain checks. Fetches unless files are given.
-  -f, --format <fmt>      text (default), json, sarif, github, or junit
+  -f, --format <fmt>      text (default), json, ndjson, sarif, github, junit,
+                          or checkstyle
       --strict            Treat warnings as errors
       --max-warnings <n>  Fail if warnings exceed n
       --off <rule>        Disable a rule (repeatable)
@@ -78,15 +92,17 @@ OPTIONS
       --warn <rule>       Lower a rule to warning (repeatable)
   -i, --interactive       Full-screen dashboard to walk the findings. Needs a TTY;
                           without one the text reporter is used instead
+      --lsp               Run as a Language Server on stdio (diagnostics +
+                          quick-fix code actions for editors)
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
-      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
-                          regulated issuer flags, and ANCHOR_QUOTE_SERVER
-                          against the network
-      --check-contracts   Verify Soroban contract and WASM TTL liveliness
-      --health-check      Ping declared endpoints and output latency matrix
-      --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
+       --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
+                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
+                           against the network
+       --verify-sep10      Verify SEP-10 nonce uniqueness and replay resistance
+       --check-contracts   Verify Soroban contract and WASM TTL liveliness
+       --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -97,9 +113,10 @@ OPTIONS
       --generate-openapi <file>
                           Generate an OpenAPI 3.1 spec (json or yaml extension)
       --color / --no-color
-      --list-rules        Print every rule and exit
-  -v, --version
-  -h, --help
+       --list-rules        Print every rule and exit
+   --lsp               Start the LSP server for IDE integration
+   -v, --version
+   -h, --help
 
 EXIT CODES
   0  no errors            1  errors found            2  bad usage or I/O failure
@@ -122,9 +139,20 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const color = cli.color ?? shouldUseColor();
+
+  if (cli.lsp) {
+    lspMain();
+    return 0;
+  }
+
   const results: { name: string; result: LintResult }[] = [];
 
   try {
+    if (cli.lsp) {
+      await runLspServer();
+      return 0;
+    }
+
     if (cli.domain && cli.paths.length === 0) {
       results.push({
         name: cli.domain,
@@ -156,6 +184,32 @@ async function main(argv: string[]): Promise<number> {
               ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
               ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetch, {
                 rules: cli.rules,
+              })),
+            );
+          }
+
+          if (cli.verifySep10 && cli.checkNetwork) {
+            const webAuthEndpoint = (fileResult.parsed as Record<string, unknown>)
+              .WEB_AUTH_ENDPOINT;
+            if (typeof webAuthEndpoint === 'string') {
+              const signingKey =
+                typeof (fileResult.parsed as Record<string, unknown>).SIGNING_KEY === 'string'
+                  ? ((fileResult.parsed as Record<string, unknown>).SIGNING_KEY as string)
+                  : '';
+              networkDiagnostics.push(
+                ...(await checkSep10Replay(signingKey, new URL(webAuthEndpoint).origin, {
+                  rules: cli.rules,
+                  fetchImpl: fetch,
+                })),
+              );
+            }
+          }
+
+          if (cli.checkNetwork) {
+            networkDiagnostics.push(
+              ...(await checkCollateralGovernance(fileResult.parsed, {
+                rules: cli.rules,
+                fetchImpl: fetch,
               })),
             );
           }
@@ -289,12 +343,16 @@ function render(result: LintResult, name: string, cli: Cli, color: boolean): str
   switch (cli.format) {
     case 'json':
       return formatJson(result, name);
+    case 'ndjson':
+      return formatNdjson(result, name);
     case 'sarif':
       return formatSarif(result, name, VERSION);
     case 'github':
       return formatGithub(result, name);
     case 'junit':
       return formatJunit(result, name);
+    case 'checkstyle':
+      return formatCheckstyle(result, name, VERSION);
     case 'text':
       return formatText(result, {
         filename: name,
@@ -332,6 +390,7 @@ function parseArgs(argv: string[]): Cli | 'handled' {
     showHelp: false,
     rules: {},
     checkNetwork: false,
+    verifySep10: false,
     checkContracts: false,
   };
 
@@ -353,6 +412,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         process.stdout.write(listRules());
         return 'handled';
 
+      case '--lsp':
+        cli.lsp = true;
+        break;
+
       case '-d':
       case '--domain':
         cli.domain = requireValue(argv, ++i, arg);
@@ -363,7 +426,7 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         const value = requireValue(argv, ++i, arg);
         if (!isFormat(value)) {
           throw new Error(
-            `Unknown format "${value}". Expected text, json, sarif, github, or junit.`,
+            `Unknown format "${value}". Expected text, json, ndjson, sarif, github, junit, or checkstyle.`,
           );
         }
         cli.format = value;
@@ -387,8 +450,8 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.checkNetwork = true;
         break;
 
-      case '--health-check':
-        cli.healthCheck = true;
+      case '--verify-sep10':
+        cli.verifySep10 = true;
         break;
 
       case '--check-contracts':
@@ -482,9 +545,11 @@ function isFormat(value: string): value is Format {
   return (
     value === 'text' ||
     value === 'json' ||
+    value === 'ndjson' ||
     value === 'sarif' ||
     value === 'github' ||
-    value === 'junit'
+    value === 'junit' ||
+    value === 'checkstyle'
   );
 }
 
