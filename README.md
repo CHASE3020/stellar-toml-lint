@@ -87,6 +87,28 @@ Rule policy discovered from a config file needs no flags at all:
 stellar-toml-lint   # honours .stellartomlrc.json found upward from ./stellar.toml
 ```
 
+Patterns support `*`, `?`, `[...]`, and `**` across directories, and are expanded by the linter
+rather than by the shell — so the same quoted argument works in bash, PowerShell, and CMD, where
+whether the shell expands the pattern (or fails to) otherwise decides whether the run starts at
+all. A pattern that matches nothing names itself and exits `2`. Hidden files and directories are
+left alone unless the pattern names them, so `**` cannot walk `.git`.
+
+Several files keep their own report, and the run closes with a single summary line:
+
+```console
+$ stellar-toml-lint "accounts/*/stellar.toml"
+accounts/acme/stellar.toml
+  No SEP-1 issues found.
+accounts/globex/stellar.toml
+  12:1      error    ...
+
+Checked 4 files: 3 passed, 1 failed (2 errors, 3 warnings)
+```
+
+The exit code is `1` when any file fails and `0` when they all pass. The summary is appended by the
+`text` reporter only, so `-f json`, `-f sarif`, and `-f junit` output stays exactly as parseable as
+it was before.
+
 ### Options
 
 | Flag                 | Effect                                                                       |
@@ -134,7 +156,8 @@ stellar-toml-lint   # honours .stellartomlrc.json found upward from ./stellar.to
 
 Every flag above takes precedence over the [configuration file](#configuration-file).
 
-Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
+Exit codes: **0** no errors, **1** problems found, **2** bad usage, an unmatched glob, or I/O
+failure.
 
 Colour output follows the [NO_COLOR standard](https://no-color.org): setting `NO_COLOR` to any
 non-empty value disables it, an empty value counts as unset, and stdout not being a terminal
@@ -334,6 +357,7 @@ severity filters (All, Errors, Warnings, Info), and expandable suggestion blocks
 code frames and links into SEP-1. Every string from the linted file is HTML-escaped, so a hostile
 `stellar.toml` cannot inject markup into the report. As with the other document formats, lint one
 file per report.
+
 ### Checkstyle XML reports
 
 Jenkins (via the Warnings NG plugin) and other pipelines that ingest the Checkstyle schema read
@@ -659,7 +683,7 @@ stellar-toml-lint --json-schema > stellar-toml.schema.json
 // .vscode/settings.json
 {
   "evenBetterToml.schema.associations": {
-    "stellar\\.toml": "file://./stellar-toml.schema.json"
-  }
+    "stellar\\.toml": "file://./stellar-toml.schema.json",
+  },
 }
 ```

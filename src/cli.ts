@@ -21,8 +21,10 @@ import {
   formatNdjson,
   formatJunit,
   formatSarif,
+  formatSummary,
   formatText,
 } from './reporters.js';
+import { expandGlob, hasMagic } from './glob.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
@@ -81,6 +83,9 @@ Validate a Stellar Info File (stellar.toml) against SEP-1 — offline.
 
 USAGE
   stellar-toml-lint [file...]            Lint local files (default: ./stellar.toml)
+  stellar-toml-lint "configs/**/*.toml"  Lint a glob — quote it so the shell
+                                         passes the pattern through instead of
+                                         expanding it (or failing to)
   stellar-toml-lint --domain <domain>    Fetch and lint https://<domain>/.well-known/stellar.toml
   cat stellar.toml | stellar-toml-lint - Lint stdin
 
@@ -145,10 +150,11 @@ CONFIG
                          or an unknown rule id exits with code 2.
 
 EXIT CODES
-  0  no errors            1  errors found            2  bad usage or I/O failure
+  0  no errors     1  errors found     2  bad usage, unmatched glob, or I/O failure
 
 EXAMPLES
   stellar-toml-lint public/.well-known/stellar.toml
+  stellar-toml-lint "accounts/*/stellar.toml"
   stellar-toml-lint --domain example.com --strict
   stellar-toml-lint -f sarif > results.sarif
   stellar-toml-lint public/.well-known/stellar.toml --check-network \\\
@@ -209,7 +215,7 @@ async function main(argv: string[]): Promise<number> {
         }),
       });
     } else {
-      const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
+      const paths = await expandInputs(cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH]);
       for (const path of paths) {
         const config = await loadConfig(path === '-' ? process.cwd() : dirname(resolve(path)));
         const fileStrict = cli.strict || config.strict;
@@ -354,6 +360,14 @@ async function main(argv: string[]): Promise<number> {
 
       process.stdout.write(render(filtered, name, cli, color));
     }
+
+    // One line closing a multi-file run, so a CI log answers "did the whole
+    // set pass?" without anyone counting per-file blocks. Only the text
+    // reporter gets it: appending prose to JSON, SARIF, or XML would break the
+    // parsers those formats exist for.
+    if (results.length > 1 && cli.format === 'text') {
+      process.stdout.write(formatSummary(results, { color }));
+    }
   }
 
   if (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined) {
@@ -375,6 +389,36 @@ async function main(argv: string[]): Promise<number> {
   }
 
   return verdict(results, { strict, maxWarnings }) ? 0 : 1;
+}
+
+/**
+ * Resolves the positional arguments to a concrete list of paths.
+ *
+ * Anything holding glob magic is expanded here rather than by the shell, so
+ * the same quoted argument works under sh, PowerShell, and CMD — the first two
+ * agree on nothing else about quoting. A pattern that matches nothing is a
+ * usage mistake rather than a lint result, so it throws and `main` reports it
+ * with the exit code 2 every other bad-usage path already uses.
+ */
+async function expandInputs(inputs: string[]): Promise<string[]> {
+  const paths: string[] = [];
+
+  for (const input of inputs) {
+    if (input === '-' || !hasMagic(input)) {
+      paths.push(input);
+      continue;
+    }
+
+    const matches = await expandGlob(input);
+    if (matches.length === 0) {
+      throw new Error(
+        `No files matched "${input}". Patterns are expanded by the linter, not the shell — check the path, and quote the pattern so it arrives intact.`,
+      );
+    }
+    paths.push(...matches);
+  }
+
+  return [...new Set(paths)];
 }
 
 function render(result: LintResult, name: string, cli: Cli, color: boolean): string {
