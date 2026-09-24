@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `templates/azure-pipelines.yml` and `templates/bitbucket-pipelines.yml`: reusable CI templates for
+  Azure DevOps and Bitbucket Pipelines, documented in the README. A dedicated `test/templates.test.ts`
+  and the `.github/workflows/test-templates.yml` workflow parse both files with a real YAML parser in
+  CI, so a broken copy-paste template cannot be merged (#58).
+
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
   overrides it. Covered by `test/no-color.test.ts` (#148).
