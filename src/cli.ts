@@ -33,6 +33,7 @@ import {
 import { generateOpenApiSpec } from './generators/openapi.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
+import { runLspServer } from './lsp/server.js';
 import { checkSep10Replay } from './protocols/sep10-replay.js';
 import { checkCollateralGovernance } from './security/collateral-governance.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
@@ -64,6 +65,7 @@ interface Cli {
   interactive?: boolean;
   checkContracts: boolean;
   sorobanRpc?: string;
+  lsp?: boolean;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -86,6 +88,8 @@ OPTIONS
       --warn <rule>       Lower a rule to warning (repeatable)
   -i, --interactive       Full-screen dashboard to walk the findings. Needs a TTY;
                           without one the text reporter is used instead
+      --lsp               Run as a Language Server on stdio (diagnostics +
+                          quick-fix code actions for editors)
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
@@ -133,6 +137,11 @@ async function main(argv: string[]): Promise<number> {
   const results: { name: string; result: LintResult }[] = [];
 
   try {
+    if (cli.lsp) {
+      await runLspServer();
+      return 0;
+    }
+
     if (cli.domain && cli.paths.length === 0) {
       results.push({
         name: cli.domain,
@@ -400,6 +409,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
       case '-i':
       case '--interactive':
         cli.interactive = true;
+        break;
+
+      case '--lsp':
+        cli.lsp = true;
         break;
 
       case '--no-suggestions':
