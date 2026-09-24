@@ -6,7 +6,7 @@
  * set is small and stable, and a linter that anchors run in CI benefits from a
  * dependency tree small enough to audit by eye.
  */
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import process from 'node:process';
 import { lint, lintDomain, finalize } from './lint.js';
@@ -14,7 +14,14 @@ import { checkNetworkAccounts } from './network-checks.js';
 import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
+import { checkSep38 } from './rules/sep38-endpoints.js';
 import { allRules } from './rules/index.js';
+import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
+import {
+  generateAnchorPlatformConfig,
+  formatAnchorPlatformYaml,
+} from './generators/anchor-platform.js';
+import { generateOpenApiSpec } from './generators/openapi.js';
 import type { LintResult, RuleOverrides, Severity } from './types.js';
 
 const VERSION = '0.1.0';
@@ -34,6 +41,10 @@ interface Cli {
   rules: RuleOverrides;
   maxWarnings?: number;
   checkNetwork: boolean;
+  badgeSvg?: string;
+  badgeJson?: string;
+  exportApConfig?: boolean;
+  generateOpenapi?: string;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -57,7 +68,13 @@ OPTIONS
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
-      --check-network     Verify SIGNING_KEY, ACCOUNTS, and HORIZON_URL against the network
+      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, and
+                          ANCHOR_QUOTE_SERVER against the network
+      --badge-svg <file>  Generate an SVG compliance badge
+      --badge-json <file> Generate a Shields.io JSON endpoint
+      --export-ap-config  Export Anchor Platform YAML config to stdout
+      --generate-openapi <file>
+                          Generate an OpenAPI 3.1 spec (json or yaml extension)
       --color / --no-color
       --list-rules        Print every rule and exit
   -v, --version
@@ -112,6 +129,7 @@ async function main(argv: string[]): Promise<number> {
             ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
             ...(await checkNetworkAccounts(fileResult.parsed)),
             ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
+            ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
           ];
           if (networkDiagnostics.length > 0) {
             fileResult = finalize(
@@ -133,12 +151,48 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
-  for (const { name, result } of results) {
-    const filtered = cli.quiet
-      ? { ...result, diagnostics: result.diagnostics.filter((d) => d.severity === 'error') }
-      : result;
+  const firstResult = results[0]?.result;
 
-    process.stdout.write(render(filtered, name, cli, color));
+  if (cli.badgeSvg && firstResult) {
+    await writeFile(cli.badgeSvg, generateBadgeSvg(firstResult));
+  }
+  if (cli.badgeJson && firstResult) {
+    await writeFile(
+      cli.badgeJson,
+      JSON.stringify(generateShieldsEndpoint(firstResult), null, 2) + '\n',
+    );
+  }
+  if (cli.exportApConfig && firstResult?.parsed) {
+    const config = generateAnchorPlatformConfig(firstResult.parsed);
+    process.stdout.write(formatAnchorPlatformYaml(config));
+  }
+  if (cli.generateOpenapi && firstResult?.parsed) {
+    const spec = generateOpenApiSpec(firstResult.parsed);
+    const ext =
+      cli.generateOpenapi.endsWith('.yaml') || cli.generateOpenapi.endsWith('.yml')
+        ? 'yaml'
+        : 'json';
+    if (ext === 'yaml') {
+      const yamlLines: string[] = [];
+      yamlLines.push(`openapi: "${spec.openapi}"`);
+      yamlLines.push(`info:`);
+      yamlLines.push(`  title: "${spec.info.title}"`);
+      yamlLines.push(`  version: "${spec.info.version}"`);
+      yamlLines.push(`  description: "${spec.info.description}"`);
+      await writeFile(cli.generateOpenapi, yamlLines.join('\n') + '\n');
+    } else {
+      await writeFile(cli.generateOpenapi, JSON.stringify(spec, null, 2) + '\n');
+    }
+  }
+
+  if (!cli.exportApConfig) {
+    for (const { name, result } of results) {
+      const filtered = cli.quiet
+        ? { ...result, diagnostics: result.diagnostics.filter((d) => d.severity === 'error') }
+        : result;
+
+      process.stdout.write(render(filtered, name, cli, color));
+    }
   }
 
   return verdict(results, cli) ? 0 : 1;
@@ -240,6 +294,22 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.checkNetwork = true;
         break;
 
+      case '--badge-svg':
+        cli.badgeSvg = requireValue(argv, ++i, arg);
+        break;
+
+      case '--badge-json':
+        cli.badgeJson = requireValue(argv, ++i, arg);
+        break;
+
+      case '--export-ap-config':
+        cli.exportApConfig = true;
+        break;
+
+      case '--generate-openapi':
+        cli.generateOpenapi = requireValue(argv, ++i, arg);
+        break;
+
       case '--max-warnings': {
         const value = Number(requireValue(argv, ++i, arg));
         if (!Number.isInteger(value) || value < 0) {
@@ -328,9 +398,20 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** Honours NO_COLOR and FORCE_COLOR, falling back to TTY detection. */
+/**
+ * Decides whether the text reporter emits ANSI colour.
+ *
+ * Follows the NO_COLOR standard (https://no-color.org): any non-empty NO_COLOR
+ * value disables colour, whatever it contains, and an empty value counts as
+ * unset. FORCE_COLOR is honoured next, and TTY detection is the fallback.
+ *
+ * An explicit `--color` or `--no-color` is resolved by `main` before this is
+ * consulted, so the flag always wins — that is the only thing that overrides
+ * NO_COLOR.
+ */
 function shouldUseColor(): boolean {
-  if (process.env.NO_COLOR) return false;
+  const noColor = process.env.NO_COLOR;
+  if (noColor !== undefined && noColor !== '') return false;
   if (process.env.FORCE_COLOR && process.env.FORCE_COLOR !== '0') return true;
   return process.stdout.isTTY === true;
 }

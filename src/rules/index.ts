@@ -6,6 +6,7 @@ import { currencyRules } from './currencies.js';
 import { validatorRules } from './validators.js';
 import { securityRules } from './security.js';
 import { horizonRules } from './horizon-check.js';
+import { sep38Rules } from './sep38-endpoints.js';
 
 /** Every rule, in report order. */
 export const allRules: Rule[] = [
@@ -16,6 +17,7 @@ export const allRules: Rule[] = [
   ...validatorRules,
   ...securityRules,
   ...horizonRules,
+  ...sep38Rules,
 ];
 
 /** Rule ids, sorted, for `--list-rules` and docs generation. */
@@ -29,4 +31,5 @@ export {
   validatorRules,
   securityRules,
   horizonRules,
+  sep38Rules,
 };
