@@ -24,8 +24,10 @@ import {
   formatAnchorPlatformYaml,
 } from './generators/anchor-platform.js';
 import { generateOpenApiSpec } from './generators/openapi.js';
+import { generateDiagram, type GraphFormat } from './generators/diagram.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
+import { loadPolicy, validatePolicy, evaluatePolicy } from './policy/engine.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
 const VERSION = '0.1.0';
@@ -54,6 +56,11 @@ interface Cli {
   interactive?: boolean;
   checkContracts: boolean;
   sorobanRpc?: string;
+  graph?: GraphFormat;
+  graphIncludeContracts?: boolean;
+  graphIncludeValidators?: boolean;
+  graphColorByProtocol?: boolean;
+  policy?: string;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -93,6 +100,11 @@ OPTIONS
       --export-ap-config  Export Anchor Platform YAML config to stdout
       --generate-openapi <file>
                           Generate an OpenAPI 3.1 spec (json or yaml extension)
+      --graph <fmt>       Generate architecture diagram: mermaid or dot
+      --graph-contracts   Include Soroban contracts in diagram
+      --graph-validators  Include validators in diagram
+      --graph-color       Color nodes by protocol type
+      --policy <file>     Evaluate enterprise policy file (JSON or YAML)
       --color / --no-color
       --list-rules        Print every rule and exit
   -v, --version
@@ -105,6 +117,9 @@ EXAMPLES
   stellar-toml-lint public/.well-known/stellar.toml
   stellar-toml-lint --domain example.com --strict
   stellar-toml-lint -f sarif > results.sarif
+  stellar-toml-lint --graph mermaid > diagram.mmd
+  stellar-toml-lint --graph dot --graph-contracts > diagram.dot
+  stellar-toml-lint --policy policy.yaml public/.well-known/stellar.toml
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -220,6 +235,50 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
+  if (cli.graph && firstResult?.parsed) {
+    const diagram = generateDiagram(firstResult.parsed, {
+      format: cli.graph,
+      includeContracts: cli.graphIncludeContracts,
+      includeValidators: cli.graphIncludeValidators,
+      colorByProtocol: cli.graphColorByProtocol,
+    });
+    process.stdout.write(diagram + '\n');
+  }
+
+  // Evaluate enterprise policy
+  if (cli.policy && firstResult?.parsed) {
+    const policy = await loadPolicy(cli.policy);
+    const validation = validatePolicy(policy);
+    if (!validation.valid) {
+      process.stderr.write(`Policy validation failed:\n${validation.errors.join('\n')}\n`);
+      return 2;
+    }
+    const sourcePath = cli.paths[0] ?? DEFAULT_PATH;
+    const source = sourcePath === '-' ? await readStdin() : await readFile(sourcePath, 'utf8');
+    const policyDiagnostics = evaluatePolicy(policy, firstResult.parsed, source);
+
+    // Convert policy diagnostics to standard diagnostics
+    const convertedDiagnostics: Diagnostic[] = policyDiagnostics.map((pd) => ({
+      rule: `policy/${pd.rule}`,
+      severity: pd.severity,
+      category: 'policy',
+      message: pd.message,
+      path: pd.path,
+      position: pd.position,
+      suggestion: pd.suggestion,
+      helpUri: undefined,
+    }));
+
+    if (convertedDiagnostics.length > 0 && results[0]) {
+      const finalized = finalize(
+        [...firstResult.diagnostics, ...convertedDiagnostics],
+        { strict: cli.strict },
+        firstResult.parsed,
+      );
+      results[0] = { name: results[0].name, result: finalized };
+    }
+  }
+
   if (cli.interactive && cli.format !== 'text') {
     process.stderr.write(
       `--interactive draws its own view of the findings; drop --format ${cli.format}.\n\nRun with --help for usage.\n`,
@@ -316,6 +375,9 @@ function parseArgs(argv: string[]): Cli | 'handled' {
     rules: {},
     checkNetwork: false,
     checkContracts: false,
+    graphIncludeContracts: false,
+    graphIncludeValidators: false,
+    graphColorByProtocol: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -403,6 +465,31 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '--generate-openapi':
         cli.generateOpenapi = requireValue(argv, ++i, arg);
+        break;
+
+      case '--graph': {
+        const value = requireValue(argv, ++i, arg);
+        if (value !== 'mermaid' && value !== 'dot') {
+          throw new Error(`Unknown graph format "${value}". Expected mermaid or dot.`);
+        }
+        cli.graph = value;
+        break;
+      }
+
+      case '--graph-contracts':
+        cli.graphIncludeContracts = true;
+        break;
+
+      case '--graph-validators':
+        cli.graphIncludeValidators = true;
+        break;
+
+      case '--graph-color':
+        cli.graphColorByProtocol = true;
+        break;
+
+      case '--policy':
+        cli.policy = requireValue(argv, ++i, arg);
         break;
 
       case '--max-warnings': {
