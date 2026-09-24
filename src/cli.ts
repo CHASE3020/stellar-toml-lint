@@ -10,6 +10,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import process from 'node:process';
 import { lint, lintDomain, finalize } from './lint.js';
+import { lspMain } from './lsp.js';
 import { checkNetworkAccounts } from './network-checks.js';
 import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
@@ -50,6 +51,7 @@ interface Cli {
   webhookSlack?: string;
   webhookDiscord?: string;
   interactive?: boolean;
+  lsp?: boolean;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -87,9 +89,10 @@ OPTIONS
       --generate-openapi <file>
                           Generate an OpenAPI 3.1 spec (json or yaml extension)
       --color / --no-color
-      --list-rules        Print every rule and exit
-  -v, --version
-  -h, --help
+       --list-rules        Print every rule and exit
+   --lsp               Start the LSP server for IDE integration
+   -v, --version
+   -h, --help
 
 EXIT CODES
   0  no errors            1  errors found            2  bad usage or I/O failure
@@ -112,6 +115,12 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const color = cli.color ?? shouldUseColor();
+
+  if (cli.lsp) {
+    lspMain();
+    return 0;
+  }
+
   const results: { name: string; result: LintResult }[] = [];
 
   try {
@@ -310,6 +319,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
       case '--list-rules':
         process.stdout.write(listRules());
         return 'handled';
+
+      case '--lsp':
+        cli.lsp = true;
+        break;
 
       case '-d':
       case '--domain':

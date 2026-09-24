@@ -10,6 +10,7 @@
  * ```
  */
 export { lint, lintDomain } from './lint.js';
+export { lspMain } from './lsp.js';
 export { allRules, ruleIds } from './rules/index.js';
 export { formatText, formatJson, formatSarif, formatGithub, formatJunit } from './reporters.js';
 export type { TextReporterOptions } from './reporters.js';
