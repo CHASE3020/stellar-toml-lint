@@ -369,6 +369,42 @@ New contributors are genuinely welcome — see [CONTRIBUTING.md](./CONTRIBUTING.
 [`good first issue`][gfi] are scoped to be completable in an afternoon, and adding a rule is mostly a
 matter of appending one object to a list and one fixture to a test.
 
+## Integrations
+
+### JetBrains IDE Plugin
+
+Official plugin for IntelliJ IDEA and WebStorm with real-time SEP-1 linting.
+Provides inline diagnostics, quick-fix intentions, and hover documentation.
+
+```bash
+cd integrations/jetbrains && ./gradlew buildPlugin
+```
+
+See [integrations/jetbrains/README.md](./integrations/jetbrains/README.md) for details.
+
+### GitHub App Bot
+
+Official GitHub App for automated `stellar.toml` linting in pull requests.
+Creates interactive Check Runs with inline code suggestions.
+
+See [integrations/github-app/](integrations/github-app/) for details.
+
+### Sublime Text LSP Package
+
+Official Sublime Text LSP helper package providing diagnostics, completions, and hover documentation.
+
+See [integrations/sublime/](integrations/sublime/) for details.
+
+### Performance Benchmarks
+
+Automated performance benchmark and stress-testing harness.
+
+```bash
+npm run bench
+```
+
+See [benchmarks/](benchmarks/) for details.
+
 ## Maintainers
 
 - [@Kaybee973](https://github.com/Kaybee973)
