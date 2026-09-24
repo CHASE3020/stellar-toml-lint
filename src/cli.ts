@@ -11,7 +11,14 @@ import { basename } from 'node:path';
 import process from 'node:process';
 import { lint, lintDomain, finalize } from './lint.js';
 import { checkNetworkAccounts } from './network-checks.js';
-import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
+import {
+  formatGithub,
+  formatJson,
+  formatNdjson,
+  formatJunit,
+  formatSarif,
+  formatText,
+} from './reporters.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
@@ -33,7 +40,7 @@ import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
 
-type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit';
+type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit';
 
 interface Cli {
   noSuggestions?: boolean;
@@ -71,7 +78,7 @@ USAGE
 OPTIONS
   -d, --domain <domain>   Domain serving the file. Enables CORS, content-type and
                           ORG_URL same-domain checks. Fetches unless files are given.
-  -f, --format <fmt>      text (default), json, sarif, github, or junit
+  -f, --format <fmt>      text (default), json, ndjson, sarif, github, or junit
       --strict            Treat warnings as errors
       --max-warnings <n>  Fail if warnings exceed n
       --off <rule>        Disable a rule (repeatable)
@@ -302,6 +309,8 @@ function render(result: LintResult, name: string, cli: Cli, color: boolean): str
   switch (cli.format) {
     case 'json':
       return formatJson(result, name);
+    case 'ndjson':
+      return formatNdjson(result, name);
     case 'sarif':
       return formatSarif(result, name, VERSION);
     case 'github':
@@ -496,6 +505,7 @@ function isFormat(value: string): value is Format {
   return (
     value === 'text' ||
     value === 'json' ||
+    value === 'ndjson' ||
     value === 'sarif' ||
     value === 'github' ||
     value === 'junit'

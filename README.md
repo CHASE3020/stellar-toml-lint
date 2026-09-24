@@ -84,7 +84,7 @@ cat stellar.toml | stellar-toml-lint -
 | Flag                      | Effect                                                                            |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | `-d, --domain <d>`        | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks             |
-| `-f, --format <fmt>`      | `text` (default), `json`, `sarif`, `github`, `junit`                              |
+| `-f, --format <fmt>`      | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`                    |
 | `--strict`                | Treat warnings as errors                                                          |
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                                       |
 | `--check-network`         | Verify accounts, `HORIZON_URL`, SEP-8 flags, and `ANCHOR_QUOTE_SERVER` online     |
@@ -258,7 +258,7 @@ const result = lint(await readFile('stellar.toml', 'utf8'), {
   rules: { 'general/unknown-field': 'off' },
 });
 
-// The reporters mirror `--format`: formatText (shown here), formatJson,
+// The reporters mirror `--format`: formatText (shown here), formatJson, formatNdjson,
 // formatJunit, formatSarif, and formatGithub.
 if (!result.ok) {
   console.error(formatText(result, { color: true }));
