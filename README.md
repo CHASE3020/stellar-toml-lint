@@ -103,6 +103,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--color`                 | Force colour on, overriding `NO_COLOR`                                            |
 | `--no-color`              | Force colour off                                                                  |
 | `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)                   |
+| `--lsp`                   | Run as a Language Server on stdio (diagnostics + quick-fix code actions)          |
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
 
@@ -130,6 +131,18 @@ draws its own view: drop the format flag.
 `f` currently reports that no fix engine is wired up; #9 tracks the mechanical fixes it will call
 into, and the dashboard already routes the keystroke through a callback so that lands as a one-line
 change rather than a rewrite.
+
+### Editor integration (LSP)
+
+```console
+$ stellar-toml-lint --lsp
+```
+
+Speaks the Language Server Protocol on stdio so editors can show live diagnostics and offer
+quick-fix code actions for mechanically safe findings (strip a trailing slash from an endpoint,
+normalize a near-miss `NETWORK_PASSPHRASE`, reduce a social URL to a bare handle, format a phone
+number as E.164). Unfixable parse errors never produce a code action. Point your editor's LSP
+client at the `stellar-toml-lint` binary with `--lsp`.
 
 ### Alerting a Slack or Discord channel
 
