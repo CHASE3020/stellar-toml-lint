@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { XMLValidator } from 'fast-xml-parser';
 
 const run = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +64,8 @@ describe('cli', () => {
     expect(code).toBe(0);
     expect(stdout).toContain('USAGE');
     expect(stdout).toContain('EXIT CODES');
+    expect(stdout).toContain('--check-contracts');
+    expect(stdout).toContain('--soroban-rpc');
   });
 
   it('prints the version', async () => {
@@ -75,7 +78,28 @@ describe('cli', () => {
     const { code, stdout } = await cli(['--list-rules']);
     expect(code).toBe(0);
     expect(stdout).toContain('currencies/issuance-exclusive');
+    expect(stdout).toContain('currencies/regulated-missing-auth-required-flag');
+    expect(stdout).toContain('currencies/regulated-missing-auth-revocable-flag');
+    expect(stdout).toContain('soroban/contract-ttl-expiring-soon');
+    expect(stdout).toContain('soroban/contract-expired');
     expect(stdout).toMatch(/^\d+ rules/);
+  });
+
+  it('accepts severity overrides on the network-bound rules', async () => {
+    const accepted = await cli([
+      fixture('valid.toml'),
+      '--off',
+      'soroban/contract-expired',
+      '--error',
+      'currencies/regulated-missing-auth-revocable-flag',
+    ]);
+    expect(accepted.code).toBe(0);
+  });
+
+  it('rejects --soroban-rpc without a value', async () => {
+    const { code, stderr } = await cli(['--check-contracts', '--soroban-rpc']);
+    expect(code).toBe(2);
+    expect(stderr).toContain('expects a value');
   });
 
   it('emits parseable JSON', async () => {
@@ -86,6 +110,13 @@ describe('cli', () => {
   it('emits parseable SARIF', async () => {
     const { stdout } = await cli([fixture('broken.toml'), '-f', 'sarif']);
     expect(JSON.parse(stdout).version).toBe('2.1.0');
+  });
+
+  it('emits parseable JUnit XML', async () => {
+    const { stdout } = await cli([fixture('broken.toml'), '-f', 'junit']);
+    expect(XMLValidator.validate(stdout)).toBe(true);
+    expect(stdout).toContain('<testsuites');
+    expect(stdout).toContain('<failure');
   });
 
   it('honours --off', async () => {
