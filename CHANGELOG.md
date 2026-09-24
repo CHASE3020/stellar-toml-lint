@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `currencies/display-decimals-exceeds-max` (warning) flags `display_decimals > 7` for classic assets
+  without a Soroban contract, since the classic Stellar ledger precision is 7 decimal places (#157).
+
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
   overrides it. Covered by `test/no-color.test.ts` (#148).

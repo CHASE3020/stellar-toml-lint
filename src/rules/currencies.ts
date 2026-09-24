@@ -1,6 +1,7 @@
 import type { Rule, RuleContext } from '../types.js';
 import { displayDecimalsRules } from './display-decimals-audit.js';
 import { anchoredAssetRules } from './anchored-asset-rules.js';
+import { maxDecimalsRules } from './max-decimals.js';
 import {
   ANCHOR_ASSET_TYPES,
   CURRENCY_STATUSES,
@@ -69,6 +70,8 @@ export const currencyRules: Rule[] = [
   ...displayDecimalsRules,
 
   ...anchoredAssetRules,
+
+  ...maxDecimalsRules,
 
   {
     id: 'currencies/entries-are-tables',
