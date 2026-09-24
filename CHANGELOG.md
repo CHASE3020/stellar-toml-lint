@@ -9,8 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `currencies/display-decimals-exceeds-max` (warning) flags `display_decimals > 7` for classic assets
-  without a Soroban contract, since the classic Stellar ledger precision is 7 decimal places (#157).
+- Interactive quick-fix code actions over LSP (#42): `stellar-toml-lint --lsp` runs a stdio Language
+  Server that publishes diagnostics and answers `textDocument/codeAction` with `WorkspaceEdit`
+  replacements for mechanically safe rules — `general/trailing-slash-in-endpoint`,
+  `network/passphrase` (near miss), `documentation/social-handles`, `principals/social-handles`,
+  and `documentation/phone-e164`. Diagnostics that cannot be corrected safely (parse errors,
+  missing tables) offer no action. Shared fix engine lives in `src/fix.ts` for `--fix` (#9) to reuse.
 
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
@@ -47,6 +51,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- SEP-8 regulated issuer flags under `--check-network`: for every `[[CURRENCIES]]` entry marked
+  `regulated=true` with a classic `issuer`, the linter reads the issuer account's flags from Horizon.
+  A missing `AUTH_REQUIRED` flag emits `currencies/regulated-missing-auth-required-flag` (error), a
+  missing `AUTH_REVOCABLE` flag emits `currencies/regulated-missing-auth-revocable-flag` (warning),
+  and a Horizon outage or missing account degrades to
+  `currencies/regulated-issuer-flags-unverifiable` (warning) so the run still fails cleanly on
+  strengthenable-to-fatal findings without depending on network availability.
+- Soroban contract liveliness under `--check-contracts`: `src/soroban.ts` queries the Soroban RPC's
+  `getLedgerEntries` for the contract instance and its WASM behind every `[[CURRENCIES]].contract`
+  and `WEB_AUTH_CONTRACT_ID`, comparing `liveUntilLedgerSeq` against `latestLedger`. Within ~a day of
+  expiry it emits `soroban/contract-ttl-expiring-soon` (warning); expired or archived state emits
+  `soroban/contract-expired` (error); an unreachable RPC degrades to `soroban/contract-ttl-unavailable`
+  (warning). The endpoint is derived from `NETWORK_PASSPHRASE` and overridable with `--soroban-rpc`.
 - `security/deprecated-tls-version` and `security/weak-cipher-suite` warnings under `--domain`:
   the linter now inspects the TLS session the host negotiates and flags TLS 1.0/1.1 (and SSLv2/SSLv3),
   plus cipher suites built on 3DES, DES, RC4, CBC, NULL, or EXPORT primitives. Offline linting is

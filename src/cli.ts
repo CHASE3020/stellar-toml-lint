@@ -11,10 +11,19 @@ import { basename } from 'node:path';
 import process from 'node:process';
 import { lint, lintDomain, finalize } from './lint.js';
 import { checkNetworkAccounts } from './network-checks.js';
-import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
+import {
+  formatGithub,
+  formatJson,
+  formatNdjson,
+  formatJunit,
+  formatSarif,
+  formatText,
+} from './reporters.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
+import { checkRegulatedIssuerFlags } from './rules/currencies.js';
+import { checkContracts } from './soroban.js';
 import { allRules } from './rules/index.js';
 import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
 import {
@@ -24,12 +33,15 @@ import {
 import { generateOpenApiSpec } from './generators/openapi.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
-import type { LintResult, RuleOverrides, Severity } from './types.js';
+import { runLspServer } from './lsp/server.js';
+import { checkSep10Replay } from './protocols/sep10-replay.js';
+import { checkCollateralGovernance } from './security/collateral-governance.js';
+import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
 
-type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit';
+type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit';
 
 interface Cli {
   noSuggestions?: boolean;
@@ -43,6 +55,7 @@ interface Cli {
   rules: RuleOverrides;
   maxWarnings?: number;
   checkNetwork: boolean;
+  verifySep10: boolean;
   badgeSvg?: string;
   badgeJson?: string;
   exportApConfig?: boolean;
@@ -50,6 +63,9 @@ interface Cli {
   webhookSlack?: string;
   webhookDiscord?: string;
   interactive?: boolean;
+  checkContracts: boolean;
+  sorobanRpc?: string;
+  lsp?: boolean;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -64,7 +80,7 @@ USAGE
 OPTIONS
   -d, --domain <domain>   Domain serving the file. Enables CORS, content-type and
                           ORG_URL same-domain checks. Fetches unless files are given.
-  -f, --format <fmt>      text (default), json, sarif, github, or junit
+  -f, --format <fmt>      text (default), json, ndjson, sarif, github, or junit
       --strict            Treat warnings as errors
       --max-warnings <n>  Fail if warnings exceed n
       --off <rule>        Disable a rule (repeatable)
@@ -72,11 +88,17 @@ OPTIONS
       --warn <rule>       Lower a rule to warning (repeatable)
   -i, --interactive       Full-screen dashboard to walk the findings. Needs a TTY;
                           without one the text reporter is used instead
+      --lsp               Run as a Language Server on stdio (diagnostics +
+                          quick-fix code actions for editors)
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
-      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, and
-                          ANCHOR_QUOTE_SERVER against the network
+       --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
+                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
+                           against the network
+       --verify-sep10      Verify SEP-10 nonce uniqueness and replay resistance
+       --check-contracts   Verify Soroban contract and WASM TTL liveliness
+       --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -115,6 +137,11 @@ async function main(argv: string[]): Promise<number> {
   const results: { name: string; result: LintResult }[] = [];
 
   try {
+    if (cli.lsp) {
+      await runLspServer();
+      return 0;
+    }
+
     if (cli.domain && cli.paths.length === 0) {
       results.push({
         name: cli.domain,
@@ -135,13 +162,56 @@ async function main(argv: string[]): Promise<number> {
           ...(cli.domain ? { domain: cli.domain } : {}),
         });
 
-        if (cli.checkNetwork && fileResult.parsed) {
-          const networkDiagnostics = [
-            ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
-            ...(await checkNetworkAccounts(fileResult.parsed)),
-            ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
-            ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
-          ];
+        if (fileResult.parsed && (cli.checkNetwork || cli.checkContracts)) {
+          const networkDiagnostics: Diagnostic[] = [];
+
+          if (cli.checkNetwork) {
+            networkDiagnostics.push(
+              ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
+              ...(await checkNetworkAccounts(fileResult.parsed)),
+              ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
+              ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
+              ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetch, {
+                rules: cli.rules,
+              })),
+            );
+          }
+
+          if (cli.verifySep10 && cli.checkNetwork) {
+            const webAuthEndpoint = (fileResult.parsed as Record<string, unknown>)
+              .WEB_AUTH_ENDPOINT;
+            if (typeof webAuthEndpoint === 'string') {
+              const signingKey =
+                typeof (fileResult.parsed as Record<string, unknown>).SIGNING_KEY === 'string'
+                  ? ((fileResult.parsed as Record<string, unknown>).SIGNING_KEY as string)
+                  : '';
+              networkDiagnostics.push(
+                ...(await checkSep10Replay(signingKey, new URL(webAuthEndpoint).origin, {
+                  rules: cli.rules,
+                  fetchImpl: fetch,
+                })),
+              );
+            }
+          }
+
+          if (cli.checkNetwork) {
+            networkDiagnostics.push(
+              ...(await checkCollateralGovernance(fileResult.parsed, {
+                rules: cli.rules,
+                fetchImpl: fetch,
+              })),
+            );
+          }
+
+          if (cli.checkContracts) {
+            networkDiagnostics.push(
+              ...(await checkContracts(fileResult.parsed, fetch, {
+                rules: cli.rules,
+                ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+              })),
+            );
+          }
+
           if (networkDiagnostics.length > 0) {
             fileResult = finalize(
               [...fileResult.diagnostics, ...networkDiagnostics],
@@ -248,6 +318,8 @@ function render(result: LintResult, name: string, cli: Cli, color: boolean): str
   switch (cli.format) {
     case 'json':
       return formatJson(result, name);
+    case 'ndjson':
+      return formatNdjson(result, name);
     case 'sarif':
       return formatSarif(result, name, VERSION);
     case 'github':
@@ -291,6 +363,8 @@ function parseArgs(argv: string[]): Cli | 'handled' {
     showHelp: false,
     rules: {},
     checkNetwork: false,
+    verifySep10: false,
+    checkContracts: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -337,12 +411,28 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.interactive = true;
         break;
 
+      case '--lsp':
+        cli.lsp = true;
+        break;
+
       case '--no-suggestions':
         cli.noSuggestions = true;
         break;
 
       case '--check-network':
         cli.checkNetwork = true;
+        break;
+
+      case '--verify-sep10':
+        cli.verifySep10 = true;
+        break;
+
+      case '--check-contracts':
+        cli.checkContracts = true;
+        break;
+
+      case '--soroban-rpc':
+        cli.sorobanRpc = requireValue(argv, ++i, arg);
         break;
 
       case '--webhook-slack':
@@ -428,6 +518,7 @@ function isFormat(value: string): value is Format {
   return (
     value === 'text' ||
     value === 'json' ||
+    value === 'ndjson' ||
     value === 'sarif' ||
     value === 'github' ||
     value === 'junit'
