@@ -533,8 +533,10 @@ balance.
 
 **Network** (with `--domain`) — reachability, `Access-Control-Allow-Origin: *`, `text/plain` content
 type, size, and the security of the TLS session: a negotiated protocol of TLS 1.0, TLS 1.1, SSLv2,
-or SSLv3, and cipher suites built on 3DES, DES, RC4, CBC, NULL, or EXPORT primitives. Nothing here
-fires for a local file, so offline linting never depends on a network connection.
+or SSLv3, and cipher suites built on 3DES, DES, RC4, CBC, NULL, or EXPORT primitives. A 404 on
+`/.well-known/stellar.toml` triggers one probe of `https://<host>/stellar.toml`: if the file is
+served there, `network/wrong-path` (error) says to move it under `.well-known`. Nothing here fires
+for a local file, so offline linting never depends on a network connection.
 
 **Network** (with `--check-network`) — queries the `HORIZON_URL` endpoint the file advertises and
 asserts it answers with a valid Horizon root document. An endpoint that is offline, misconfigured,
