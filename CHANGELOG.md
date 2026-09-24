@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `currencies/display-decimals` now emits an `info` diagnostic when a native-asset `[[CURRENCIES]]`
+  entry (`code="native"`, or bare `XLM` with no issuer/contract) sets `display_decimals`. XLM's
+  7-decimal scale is fixed by the protocol, so the field is meaningless there and can mislead
+  wallets into rendering the native asset at the wrong scale (#4).
+
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
   overrides it. Covered by `test/no-color.test.ts` (#148).
