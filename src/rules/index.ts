@@ -5,6 +5,7 @@ import { principalRules } from './principals.js';
 import { currencyRules } from './currencies.js';
 import { validatorRules } from './validators.js';
 import { securityRules } from './security.js';
+import { emailMxRule } from './email-mx.js';
 
 /** Every rule, in report order. */
 export const allRules: Rule[] = [
@@ -14,6 +15,7 @@ export const allRules: Rule[] = [
   ...currencyRules,
   ...validatorRules,
   ...securityRules,
+  emailMxRule,
 ];
 
 /** Rule ids, sorted, for `--list-rules` and docs generation. */
