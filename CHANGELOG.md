@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `network/wrong-path` (error) under `--domain`: when `/.well-known/stellar.toml` returns HTTP 404,
+  the linter probes `https://<host>/stellar.toml` once. If the root path serves the file, the
+  diagnostic says so and points at the SEP-1 location; if the root probe also fails, behaviour is
+  unchanged (`network/unreachable` only). At most one extra request, still through the injected
+  `fetchImpl` (#3).
+
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
   overrides it. Covered by `test/no-color.test.ts` (#148).
