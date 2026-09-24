@@ -96,6 +96,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--color`                 | Force colour on, overriding `NO_COLOR`                                            |
 | `--no-color`              | Force colour off                                                                  |
 | `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)                   |
+| `-w, --watch`             | Watch files and re-run on changes                                                 |
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
 
