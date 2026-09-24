@@ -6,23 +6,45 @@
  * set is small and stable, and a linter that anchors run in CI benefits from a
  * dependency tree small enough to audit by eye.
  */
-import { readFile } from 'node:fs/promises';
-import { basename, dirname, resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
+import { basename } from 'node:path';
 import process from 'node:process';
 import { assertKnownRule, loadConfig } from './config.js';
 import { lint, lintDomain, finalize } from './lint.js';
+import { lspMain } from './lsp.js';
 import { checkNetworkAccounts } from './network-checks.js';
-import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
+import {
+  formatCheckstyle,
+  formatGithub,
+  formatJson,
+  formatNdjson,
+  formatJunit,
+  formatSarif,
+  formatText,
+} from './reporters.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
+import { checkRegulatedIssuerFlags } from './rules/currencies.js';
+import { checkContracts } from './soroban.js';
 import { allRules } from './rules/index.js';
-import type { LintResult, RuleOverrides, Severity } from './types.js';
+import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
+import {
+  generateAnchorPlatformConfig,
+  formatAnchorPlatformYaml,
+} from './generators/anchor-platform.js';
+import { generateOpenApiSpec } from './generators/openapi.js';
+import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
+import { runDashboard, supportsDashboard } from './ui/dashboard.js';
+import { runLspServer } from './lsp/server.js';
+import { checkSep10Replay } from './protocols/sep10-replay.js';
+import { checkCollateralGovernance } from './security/collateral-governance.js';
+import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
 
-type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit';
+type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit' | 'checkstyle';
 
 interface Cli {
   noSuggestions?: boolean;
@@ -36,6 +58,17 @@ interface Cli {
   rules: RuleOverrides;
   maxWarnings?: number;
   checkNetwork: boolean;
+  verifySep10: boolean;
+  badgeSvg?: string;
+  badgeJson?: string;
+  exportApConfig?: boolean;
+  generateOpenapi?: string;
+  webhookSlack?: string;
+  webhookDiscord?: string;
+  interactive?: boolean;
+  checkContracts: boolean;
+  sorobanRpc?: string;
+  lsp?: boolean;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -50,21 +83,40 @@ USAGE
 OPTIONS
   -d, --domain <domain>   Domain serving the file. Enables CORS, content-type and
                           ORG_URL same-domain checks. Fetches unless files are given.
-  -f, --format <fmt>      text (default), json, sarif, github, or junit
+  -f, --format <fmt>      text (default), json, ndjson, sarif, github, junit,
+                          or checkstyle
       --strict            Treat warnings as errors
       --max-warnings <n>  Fail if warnings exceed n
       --off <rule>        Disable a rule (repeatable)
       --error <rule>      Raise a rule to error (repeatable)
       --warn <rule>       Lower a rule to warning (repeatable)
+  -i, --interactive       Full-screen dashboard to walk the findings. Needs a TTY;
+                          without one the text reporter is used instead
+      --lsp               Run as a Language Server on stdio (diagnostics +
+                          quick-fix code actions for editors)
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
-      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, and
-                          ANCHOR_QUOTE_SERVER against the network
+       --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
+                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
+                           against the network
+       --verify-sep10      Verify SEP-10 nonce uniqueness and replay resistance
+       --check-contracts   Verify Soroban contract and WASM TTL liveliness
+       --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
+      --webhook-slack <url>
+                          POST a Slack Block Kit card with the run summary
+      --webhook-discord <url>
+                          POST a Discord embed with the run summary
+      --badge-svg <file>  Generate an SVG compliance badge
+      --badge-json <file> Generate a Shields.io JSON endpoint
+      --export-ap-config  Export Anchor Platform YAML config to stdout
+      --generate-openapi <file>
+                          Generate an OpenAPI 3.1 spec (json or yaml extension)
       --color / --no-color
-      --list-rules        Print every rule and exit
-  -v, --version
-  -h, --help
+       --list-rules        Print every rule and exit
+   --lsp               Start the LSP server for IDE integration
+   -v, --version
+   -h, --help
 
 CONFIG
   .stellartomlrc.json    Project defaults, discovered upward from the linted
@@ -95,12 +147,23 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const color = cli.color ?? shouldUseColor();
+
+  if (cli.lsp) {
+    lspMain();
+    return 0;
+  }
+
   const results: { name: string; result: LintResult }[] = [];
   // Project defaults from .stellartomlrc.json, overridden by any CLI flag.
   let strict = cli.strict;
   let maxWarnings = cli.maxWarnings;
 
   try {
+    if (cli.lsp) {
+      await runLspServer();
+      return 0;
+    }
+
     if (cli.domain && cli.paths.length === 0) {
       const config = await loadConfig(process.cwd());
       strict = strict || config.strict;
@@ -130,13 +193,56 @@ async function main(argv: string[]): Promise<number> {
           ...(cli.domain ? { domain: cli.domain } : {}),
         });
 
-        if (cli.checkNetwork && fileResult.parsed) {
-          const networkDiagnostics = [
-            ...(await checkHorizon(fileResult.parsed, fetch, { rules })),
-            ...(await checkNetworkAccounts(fileResult.parsed)),
-            ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules })),
-            ...(await checkSep38(fileResult.parsed, fetch, { rules })),
-          ];
+        if (fileResult.parsed && (cli.checkNetwork || cli.checkContracts)) {
+          const networkDiagnostics: Diagnostic[] = [];
+
+          if (cli.checkNetwork) {
+            networkDiagnostics.push(
+              ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
+              ...(await checkNetworkAccounts(fileResult.parsed)),
+              ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
+              ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
+              ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetch, {
+                rules: cli.rules,
+              })),
+            );
+          }
+
+          if (cli.verifySep10 && cli.checkNetwork) {
+            const webAuthEndpoint = (fileResult.parsed as Record<string, unknown>)
+              .WEB_AUTH_ENDPOINT;
+            if (typeof webAuthEndpoint === 'string') {
+              const signingKey =
+                typeof (fileResult.parsed as Record<string, unknown>).SIGNING_KEY === 'string'
+                  ? ((fileResult.parsed as Record<string, unknown>).SIGNING_KEY as string)
+                  : '';
+              networkDiagnostics.push(
+                ...(await checkSep10Replay(signingKey, new URL(webAuthEndpoint).origin, {
+                  rules: cli.rules,
+                  fetchImpl: fetch,
+                })),
+              );
+            }
+          }
+
+          if (cli.checkNetwork) {
+            networkDiagnostics.push(
+              ...(await checkCollateralGovernance(fileResult.parsed, {
+                rules: cli.rules,
+                fetchImpl: fetch,
+              })),
+            );
+          }
+
+          if (cli.checkContracts) {
+            networkDiagnostics.push(
+              ...(await checkContracts(fileResult.parsed, fetch, {
+                rules: cli.rules,
+                ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+              })),
+            );
+          }
+
           if (networkDiagnostics.length > 0) {
             fileResult = finalize(
               [...fileResult.diagnostics, ...networkDiagnostics],
@@ -157,12 +263,83 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
-  for (const { name, result } of results) {
-    const filtered = cli.quiet
-      ? { ...result, diagnostics: result.diagnostics.filter((d) => d.severity === 'error') }
-      : result;
+  const firstResult = results[0]?.result;
 
-    process.stdout.write(render(filtered, name, cli, color));
+  if (cli.badgeSvg && firstResult) {
+    await writeFile(cli.badgeSvg, generateBadgeSvg(firstResult));
+  }
+  if (cli.badgeJson && firstResult) {
+    await writeFile(
+      cli.badgeJson,
+      JSON.stringify(generateShieldsEndpoint(firstResult), null, 2) + '\n',
+    );
+  }
+  if (cli.exportApConfig && firstResult?.parsed) {
+    const config = generateAnchorPlatformConfig(firstResult.parsed);
+    process.stdout.write(formatAnchorPlatformYaml(config));
+  }
+  if (cli.generateOpenapi && firstResult?.parsed) {
+    const spec = generateOpenApiSpec(firstResult.parsed);
+    const ext =
+      cli.generateOpenapi.endsWith('.yaml') || cli.generateOpenapi.endsWith('.yml')
+        ? 'yaml'
+        : 'json';
+    if (ext === 'yaml') {
+      const yamlLines: string[] = [];
+      yamlLines.push(`openapi: "${spec.openapi}"`);
+      yamlLines.push(`info:`);
+      yamlLines.push(`  title: "${spec.info.title}"`);
+      yamlLines.push(`  version: "${spec.info.version}"`);
+      yamlLines.push(`  description: "${spec.info.description}"`);
+      await writeFile(cli.generateOpenapi, yamlLines.join('\n') + '\n');
+    } else {
+      await writeFile(cli.generateOpenapi, JSON.stringify(spec, null, 2) + '\n');
+    }
+  }
+
+  if (cli.interactive && cli.format !== 'text') {
+    process.stderr.write(
+      `--interactive draws its own view of the findings; drop --format ${cli.format}.\n\nRun with --help for usage.\n`,
+    );
+    return 2;
+  }
+
+  // A dashboard written into a pipe or a file would corrupt the output it is
+  // meant to replace, so anything that is not a terminal keeps the text report.
+  const dashboard = cli.interactive === true && supportsDashboard(process.stdout);
+
+  if (!cli.exportApConfig && dashboard) {
+    await runDashboard(
+      results,
+      { stdin: process.stdin, stdout: process.stdout },
+      { color, ...(cli.quiet ? { filter: 'error' as const } : {}) },
+    );
+  } else if (!cli.exportApConfig) {
+    for (const { name, result } of results) {
+      const filtered = cli.quiet
+        ? { ...result, diagnostics: result.diagnostics.filter((d) => d.severity === 'error') }
+        : result;
+
+      process.stdout.write(render(filtered, name, cli, color));
+    }
+  }
+
+  if (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined) {
+    const deliveries = await deliverWebhooks(results, {
+      ...(cli.webhookSlack !== undefined ? { slack: cli.webhookSlack } : {}),
+      ...(cli.webhookDiscord !== undefined ? { discord: cli.webhookDiscord } : {}),
+    });
+
+    for (const delivery of deliveries) {
+      if (delivery.ok) continue;
+      // The exit code stays tied to the diagnostics: a broken alert endpoint
+      // must not turn a clean file into a failing build.
+      process.stderr.write(
+        `Warning: ${delivery.channel} webhook failed after ${delivery.attempts} attempt(s)${
+          delivery.error === undefined ? '' : `: ${delivery.error}`
+        }\n`,
+      );
+    }
   }
 
   return verdict(results, { strict, maxWarnings }) ? 0 : 1;
@@ -172,12 +349,16 @@ function render(result: LintResult, name: string, cli: Cli, color: boolean): str
   switch (cli.format) {
     case 'json':
       return formatJson(result, name);
+    case 'ndjson':
+      return formatNdjson(result, name);
     case 'sarif':
       return formatSarif(result, name, VERSION);
     case 'github':
       return formatGithub(result, name);
     case 'junit':
       return formatJunit(result, name);
+    case 'checkstyle':
+      return formatCheckstyle(result, name, VERSION);
     case 'text':
       return formatText(result, {
         filename: name,
@@ -218,6 +399,8 @@ function parseArgs(argv: string[]): Cli | 'handled' {
     showHelp: false,
     rules: {},
     checkNetwork: false,
+    verifySep10: false,
+    checkContracts: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -238,6 +421,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         process.stdout.write(listRules());
         return 'handled';
 
+      case '--lsp':
+        cli.lsp = true;
+        break;
+
       case '-d':
       case '--domain':
         cli.domain = requireValue(argv, ++i, arg);
@@ -248,7 +435,7 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         const value = requireValue(argv, ++i, arg);
         if (!isFormat(value)) {
           throw new Error(
-            `Unknown format "${value}". Expected text, json, sarif, github, or junit.`,
+            `Unknown format "${value}". Expected text, json, ndjson, sarif, github, junit, or checkstyle.`,
           );
         }
         cli.format = value;
@@ -259,12 +446,56 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         cli.strict = true;
         break;
 
+      case '-i':
+      case '--interactive':
+        cli.interactive = true;
+        break;
+
       case '--no-suggestions':
         cli.noSuggestions = true;
         break;
 
       case '--check-network':
         cli.checkNetwork = true;
+        break;
+
+      case '--verify-sep10':
+        cli.verifySep10 = true;
+        break;
+
+      case '--check-contracts':
+        cli.checkContracts = true;
+        break;
+
+      case '--soroban-rpc':
+        cli.sorobanRpc = requireValue(argv, ++i, arg);
+        break;
+
+      case '--webhook-slack':
+      case '--webhook-discord': {
+        const value = requireValue(argv, ++i, arg);
+        if (!isSupportedWebhookUrl(value)) {
+          throw new Error(`${arg} expects an http or https URL.`);
+        }
+        if (arg === '--webhook-slack') cli.webhookSlack = value;
+        else cli.webhookDiscord = value;
+        break;
+      }
+
+      case '--badge-svg':
+        cli.badgeSvg = requireValue(argv, ++i, arg);
+        break;
+
+      case '--badge-json':
+        cli.badgeJson = requireValue(argv, ++i, arg);
+        break;
+
+      case '--export-ap-config':
+        cli.exportApConfig = true;
+        break;
+
+      case '--generate-openapi':
+        cli.generateOpenapi = requireValue(argv, ++i, arg);
         break;
 
       case '--max-warnings': {
@@ -323,9 +554,11 @@ function isFormat(value: string): value is Format {
   return (
     value === 'text' ||
     value === 'json' ||
+    value === 'ndjson' ||
     value === 'sarif' ||
     value === 'github' ||
-    value === 'junit'
+    value === 'junit' ||
+    value === 'checkstyle'
   );
 }
 
@@ -343,9 +576,20 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** Honours NO_COLOR and FORCE_COLOR, falling back to TTY detection. */
+/**
+ * Decides whether the text reporter emits ANSI colour.
+ *
+ * Follows the NO_COLOR standard (https://no-color.org): any non-empty NO_COLOR
+ * value disables colour, whatever it contains, and an empty value counts as
+ * unset. FORCE_COLOR is honoured next, and TTY detection is the fallback.
+ *
+ * An explicit `--color` or `--no-color` is resolved by `main` before this is
+ * consulted, so the flag always wins — that is the only thing that overrides
+ * NO_COLOR.
+ */
 function shouldUseColor(): boolean {
-  if (process.env.NO_COLOR) return false;
+  const noColor = process.env.NO_COLOR;
+  if (noColor !== undefined && noColor !== '') return false;
   if (process.env.FORCE_COLOR && process.env.FORCE_COLOR !== '0') return true;
   return process.stdout.isTTY === true;
 }
