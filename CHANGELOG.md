@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `.stellartomlrc.json` project configuration, discovered upward from the linted file's directory
+  (from the current directory for stdin and `--domain`), recording `rules`, `strict`, and
+  `maxWarnings` beside the file it tunes. CLI flags always override the config; a malformed file or
+  an unknown rule id exits with code 2 and a "did you mean" suggestion (#5).
 - `--format junit` emits a JUnit XML test report for CI dashboards that chart test results (Jenkins,
   Bamboo, CircleCI, Azure DevOps). Error-severity findings are reported as `<failure>` elements and
   warnings as `<error>` elements, so a dashboard counting failures matches the exit code (#143).

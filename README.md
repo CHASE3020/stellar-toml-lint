@@ -56,6 +56,8 @@ npx stellar-toml-lint                      # or just run it
 ```
 
 Requires Node.js 20 or newer. Two runtime dependencies: `smol-toml` and `@stellar/stellar-base`.
+Commit a `.stellartomlrc.json` next to your `stellar.toml` to record the project's rule policy once
+instead of repeating `--off`/`--warn` flags in every workflow (see [Usage](#usage)).
 
 ## Usage
 
@@ -71,6 +73,12 @@ stellar-toml-lint public/.well-known/stellar.toml --domain example.com
 
 # Read from stdin
 cat stellar.toml | stellar-toml-lint -
+```
+
+Rule policy discovered from a config file needs no flags at all:
+
+```bash
+stellar-toml-lint   # honours .stellartomlrc.json found upward from ./stellar.toml
 ```
 
 ### Options
@@ -90,7 +98,34 @@ cat stellar.toml | stellar-toml-lint -
 | `--list-rules`       | Print every rule and exit                                             |
 | `--no-suggestions`   | Hide diagnostic suggestions in the output                             |
 
+Every flag above takes precedence over the [configuration file](#configuration-file).
+
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
+
+### Configuration file
+
+The linter looks for **`.stellartomlrc.json`** in the linted file's directory and, when it is not
+there, in each parent directory up to the filesystem root — from the current directory when linting
+stdin or `--domain`. Put it beside `stellar.toml` and the whole repo picks it up:
+
+```json
+{
+  "rules": { "general/version": "off", "general/unknown-field": "error" },
+  "strict": true,
+  "maxWarnings": 5
+}
+```
+
+| Key           | Meaning                                                        |
+| ------------- | -------------------------------------------------------------- |
+| `rules`       | Per-rule severities: `"off"`, `"error"`, `"warning"`, `"info"` |
+| `strict`      | Same as `--strict`                                             |
+| `maxWarnings` | Same as `--max-warnings`                                       |
+
+CLI flags always override the file, so a one-off `--strict` still works against a relaxed config.
+A malformed file, an unknown field, or an unknown rule id fails loudly with exit code **2** —
+including a "did you mean" suggestion for a mistyped rule — so a broken policy never passes
+silently.
 
 ## In CI
 

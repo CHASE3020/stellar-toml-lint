@@ -7,8 +7,9 @@
  * dependency tree small enough to audit by eye.
  */
 import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import process from 'node:process';
+import { assertKnownRule, loadConfig } from './config.js';
 import { lint, lintDomain, finalize } from './lint.js';
 import { checkNetworkAccounts } from './network-checks.js';
 import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
@@ -65,6 +66,14 @@ OPTIONS
   -v, --version
   -h, --help
 
+CONFIG
+  .stellartomlrc.json    Project defaults, discovered upward from the linted
+                         file's directory (from the current directory for stdin
+                         and --domain), stopping at the filesystem root.
+                         Recognises "rules", "strict", and "maxWarnings".
+                         CLI flags always override the file; a malformed config
+                         or an unknown rule id exits with code 2.
+
 EXIT CODES
   0  no errors            1  errors found            2  bad usage or I/O failure
 
@@ -87,39 +96,51 @@ async function main(argv: string[]): Promise<number> {
 
   const color = cli.color ?? shouldUseColor();
   const results: { name: string; result: LintResult }[] = [];
+  // Project defaults from .stellartomlrc.json, overridden by any CLI flag.
+  let strict = cli.strict;
+  let maxWarnings = cli.maxWarnings;
 
   try {
     if (cli.domain && cli.paths.length === 0) {
+      const config = await loadConfig(process.cwd());
+      strict = strict || config.strict;
+      maxWarnings ??= config.maxWarnings;
       results.push({
         name: cli.domain,
         result: await lintDomain(cli.domain, {
-          strict: cli.strict,
-          rules: cli.rules,
+          strict,
+          rules: { ...config.rules, ...cli.rules },
           checkNetwork: cli.checkNetwork,
         }),
       });
     } else {
       const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
       for (const path of paths) {
+        const config = await loadConfig(path === '-' ? process.cwd() : dirname(resolve(path)));
+        const fileStrict = cli.strict || config.strict;
+        strict = strict || config.strict;
+        maxWarnings ??= config.maxWarnings;
+        const rules = { ...config.rules, ...cli.rules };
+
         const source = path === '-' ? await readStdin() : await readFile(path, 'utf8');
         let fileResult = lint(source, {
-          strict: cli.strict,
-          rules: cli.rules,
+          strict: fileStrict,
+          rules,
           checkNetwork: cli.checkNetwork,
           ...(cli.domain ? { domain: cli.domain } : {}),
         });
 
         if (cli.checkNetwork && fileResult.parsed) {
           const networkDiagnostics = [
-            ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
+            ...(await checkHorizon(fileResult.parsed, fetch, { rules })),
             ...(await checkNetworkAccounts(fileResult.parsed)),
-            ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
-            ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
+            ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules })),
+            ...(await checkSep38(fileResult.parsed, fetch, { rules })),
           ];
           if (networkDiagnostics.length > 0) {
             fileResult = finalize(
               [...fileResult.diagnostics, ...networkDiagnostics],
-              { strict: cli.strict },
+              { strict: fileStrict },
               fileResult.parsed,
             );
           }
@@ -144,7 +165,7 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(render(filtered, name, cli, color));
   }
 
-  return verdict(results, cli) ? 0 : 1;
+  return verdict(results, { strict, maxWarnings }) ? 0 : 1;
 }
 
 function render(result: LintResult, name: string, cli: Cli, color: boolean): string {
@@ -169,7 +190,10 @@ function render(result: LintResult, name: string, cli: Cli, color: boolean): str
 }
 
 /** Combines per-file verdicts, including the `--max-warnings` threshold. */
-function verdict(results: { result: LintResult }[], cli: Cli): boolean {
+function verdict(
+  results: { result: LintResult }[],
+  options: { strict: boolean; maxWarnings?: number },
+): boolean {
   const totals = results.reduce(
     (acc, { result }) => {
       acc.error += result.counts.error;
@@ -180,8 +204,8 @@ function verdict(results: { result: LintResult }[], cli: Cli): boolean {
   );
 
   if (totals.error > 0) return false;
-  if (cli.strict && totals.warning > 0) return false;
-  if (cli.maxWarnings !== undefined && totals.warning > cli.maxWarnings) return false;
+  if (options.strict && totals.warning > 0) return false;
+  if (options.maxWarnings !== undefined && totals.warning > options.maxWarnings) return false;
   return true;
 }
 
@@ -302,18 +326,6 @@ function isFormat(value: string): value is Format {
     value === 'sarif' ||
     value === 'github' ||
     value === 'junit'
-  );
-}
-
-/** Rejects typo'd rule ids rather than silently ignoring the override. */
-function assertKnownRule(id: string): void {
-  if (allRules.some((rule) => rule.id === id)) return;
-  const near = allRules
-    .map((rule) => rule.id)
-    .filter((candidate) => candidate.includes(id) || id.includes(candidate.split('/')[1] ?? ''))
-    .slice(0, 3);
-  throw new Error(
-    `Unknown rule "${id}".${near.length > 0 ? ` Did you mean: ${near.join(', ')}?` : ''} Run --list-rules to see them all.`,
   );
 }
 
