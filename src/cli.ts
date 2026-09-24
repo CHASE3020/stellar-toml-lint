@@ -7,17 +7,15 @@
  * dependency tree small enough to audit by eye.
  */
 import { readFile, writeFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { assertKnownRule, loadConfig } from './config.js';
 import { lint, lintDomain, finalize } from './lint.js';
-import { lspMain } from './lsp.js';
 import { checkNetworkAccounts } from './network-checks.js';
 import {
   formatCheckstyle,
   formatGithub,
   formatHtml,
-  formatJson,
   formatJson,
   formatNdjson,
   formatJunit,
@@ -48,9 +46,7 @@ import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
 
-type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit' | 'html';
-type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit';
-type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit' | 'checkstyle';
+type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit' | 'html' | 'checkstyle';
 
 interface Cli {
   noSuggestions?: boolean;
@@ -101,8 +97,8 @@ OPTIONS
       --warn <rule>       Lower a rule to warning (repeatable)
   -i, --interactive       Full-screen dashboard to walk the findings. Needs a TTY;
                           without one the text reporter is used instead
-      --lsp               Run as a Language Server on stdio (diagnostics +
-                          quick-fix code actions for editors)
+      --lsp               Run as a Language Server on stdio (diagnostics,
+                          quick-fix code actions, and SEP-1 hover docs)
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
@@ -172,7 +168,11 @@ async function main(argv: string[]): Promise<number> {
   const color = cli.color ?? shouldUseColor();
 
   if (cli.lsp) {
-    lspMain();
+    // The framed stdio server: diagnostics, quick fixes, and hover. It used to
+    // be `lspMain()`, which registered a stdin listener and then let `main()`
+    // fall through to `process.exit` — so `--lsp` printed nothing and exited
+    // before a client could send a single message.
+    await runLspServer();
     return 0;
   }
 
@@ -185,10 +185,6 @@ async function main(argv: string[]): Promise<number> {
     // Fixture mode replaces the transport for every network-bound check, so a
     // hermetic run can never reach the internet by accident.
     const fetchImpl = cli.mockFixtures !== undefined ? createFixtureFetch(cli.mockFixtures) : fetch;
-    if (cli.lsp) {
-      await runLspServer();
-      return 0;
-    }
 
     if (cli.domain && cli.paths.length === 0) {
       const config = await loadConfig(process.cwd());
@@ -199,17 +195,12 @@ async function main(argv: string[]): Promise<number> {
         result: await lintDomain(
           cli.domain,
           {
-            strict: cli.strict,
-            rules: cli.rules,
+            strict,
+            rules: { ...config.rules, ...cli.rules },
             checkNetwork: cli.checkNetwork,
           },
           fetchImpl,
         ),
-        result: await lintDomain(cli.domain, {
-          strict,
-          rules: { ...config.rules, ...cli.rules },
-          checkNetwork: cli.checkNetwork,
-        }),
       });
     } else {
       const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
@@ -476,8 +467,7 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         const value = requireValue(argv, ++i, arg);
         if (!isFormat(value)) {
           throw new Error(
-            `Unknown format "${value}". Expected text, json, sarif, github, junit, or html.`,
-            `Unknown format "${value}". Expected text, json, ndjson, sarif, github, junit, or checkstyle.`,
+            `Unknown format "${value}". Expected text, json, ndjson, sarif, github, junit, html, or checkstyle.`,
           );
         }
         cli.format = value;
@@ -604,7 +594,7 @@ function isFormat(value: string): value is Format {
     value === 'sarif' ||
     value === 'github' ||
     value === 'junit' ||
-    value === 'html'
+    value === 'html' ||
     value === 'checkstyle'
   );
 }
