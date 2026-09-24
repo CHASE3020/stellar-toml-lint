@@ -88,6 +88,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--show-help-urls`   | Print the spec link for each finding                                  |
 | `--list-rules`       | Print every rule and exit                                             |
 | `--no-suggestions`   | Hide diagnostic suggestions in the output                             |
+| `--check-network`    | Validate `ORG_OFFICIAL_EMAIL` domain MX records for email deliverability |
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
 
@@ -207,8 +208,10 @@ Run `stellar-toml-lint --list-rules` for the authoritative list. In summary:
 **File** — 100KB size limit, TOML syntax with line and column, UTF-8 BOM detection.
 
 **General** — `VERSION`; `NETWORK_PASSPHRASE` matched byte-for-byte against the known networks;
-`https://` on every endpoint field; trailing-slash detection; checksum-valid `SIGNING_KEY`,
-`URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`; deprecated fields; unknown fields; and empty string values in documentation fields.
+ `https://` on every endpoint field; trailing-slash detection; checksum-valid `SIGNING_KEY`,
+ `URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`; deprecated fields; unknown fields;
+ and empty string values in documentation fields. Under `--check-network`, validates that the domain
+ portion of `ORG_OFFICIAL_EMAIL` has MX records for email deliverability.
 
 **Cross-field dependencies** — `DIRECT_PAYMENT_SERVER` (SEP-31) requires `KYC_SERVER` (SEP-12);
 `WEB_AUTH_ENDPOINT` (SEP-10) requires `SIGNING_KEY`; SEP-45 needs both its endpoint and contract ID.
