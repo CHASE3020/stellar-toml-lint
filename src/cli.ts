@@ -16,6 +16,8 @@ import { checkNetworkAccounts } from './network-checks.js';
 import {
   formatCheckstyle,
   formatGithub,
+  formatHtml,
+  formatJson,
   formatJson,
   formatNdjson,
   formatJunit,
@@ -44,6 +46,8 @@ import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
 
+type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit' | 'html';
+type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit';
 type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit' | 'checkstyle';
 
 interface Cli {
@@ -83,6 +87,8 @@ USAGE
 OPTIONS
   -d, --domain <domain>   Domain serving the file. Enables CORS, content-type and
                           ORG_URL same-domain checks. Fetches unless files are given.
+  -f, --format <fmt>      text (default), json, sarif, github, junit, or html
+  -f, --format <fmt>      text (default), json, ndjson, sarif, github, or junit
   -f, --format <fmt>      text (default), json, ndjson, sarif, github, junit,
                           or checkstyle
       --strict            Treat warnings as errors
@@ -357,6 +363,8 @@ function render(result: LintResult, name: string, cli: Cli, color: boolean): str
       return formatGithub(result, name);
     case 'junit':
       return formatJunit(result, name);
+    case 'html':
+      return formatHtml(result, name);
     case 'checkstyle':
       return formatCheckstyle(result, name, VERSION);
     case 'text':
@@ -435,6 +443,7 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         const value = requireValue(argv, ++i, arg);
         if (!isFormat(value)) {
           throw new Error(
+            `Unknown format "${value}". Expected text, json, sarif, github, junit, or html.`,
             `Unknown format "${value}". Expected text, json, ndjson, sarif, github, junit, or checkstyle.`,
           );
         }
@@ -558,6 +567,7 @@ function isFormat(value: string): value is Format {
     value === 'sarif' ||
     value === 'github' ||
     value === 'junit' ||
+    value === 'html'
     value === 'checkstyle'
   );
 }

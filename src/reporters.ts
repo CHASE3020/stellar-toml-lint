@@ -1,5 +1,7 @@
 import type { Diagnostic, LintResult, Severity } from './types.js';
 
+export { formatHtml } from './reporters/html.js';
+
 /** Minimal ANSI helpers. Avoids a dependency for what is a dozen escape codes. */
 function makeColors(enabled: boolean) {
   const wrap = (open: number, close: number) => (s: string) =>

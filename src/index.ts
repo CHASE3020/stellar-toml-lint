@@ -18,6 +18,7 @@ export {
   formatSarif,
   formatGithub,
   formatJunit,
+  formatHtml,
   formatCheckstyle,
 } from './reporters.js';
 export type { TextReporterOptions } from './reporters.js';
