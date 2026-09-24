@@ -557,6 +557,72 @@ export const currencyRules: Rule[] = [
   },
 
   {
+    id: 'currencies/anchored-fiat-needs-transfer-server',
+    category: 'currencies',
+    severity: 'warning',
+    description: 'Anchored fiat assets need a transfer server to be redeemed',
+    run(ctx) {
+      const hasTransferServer =
+        ctx.doc.TRANSFER_SERVER !== undefined || ctx.doc.TRANSFER_SERVER_SEP0024 !== undefined;
+      if (hasTransferServer) return;
+
+      eachCurrency(ctx, (entry, path) => {
+        if (entry.is_asset_anchored !== true || entry.anchor_asset_type !== 'fiat') return;
+
+        ctx.report({
+          rule: 'currencies/anchored-fiat-needs-transfer-server',
+          category: 'currencies',
+          message: `${path} is anchored fiat but no transfer server is declared in the file`,
+          path,
+          position: ctx.locate(path),
+          helpUri: specUrl('currency-documentation'),
+          suggestion:
+            'Add TRANSFER_SERVER or TRANSFER_SERVER_SEP0024 so clients know where to deposit and redeem the asset.',
+        });
+      });
+    },
+  },
+
+  {
+    id: 'currencies/regulated-invalid-target',
+    category: 'currencies',
+    severity: 'error',
+    description:
+      'regulated = true applies only to classic issued assets, not native XLM or contracts',
+    run(ctx) {
+      eachCurrency(ctx, (entry, path) => {
+        if (entry.regulated !== true) return;
+
+        if (isNativeAsset(entry)) {
+          ctx.report({
+            rule: 'currencies/regulated-invalid-target',
+            category: 'currencies',
+            message: `${path} marks the native asset as regulated, but SEP-8 applies only to classic issued assets`,
+            path: `${path}.regulated`,
+            position: ctx.locate(`${path}.regulated`),
+            helpUri: specUrl('currency-documentation'),
+            suggestion: 'Remove regulated from the native XLM entry — no issuer controls it.',
+          });
+          return;
+        }
+
+        if (entry.contract !== undefined) {
+          ctx.report({
+            rule: 'currencies/regulated-invalid-target',
+            category: 'currencies',
+            message: `${path} marks a Soroban contract token as regulated, but SEP-8 applies only to classic Stellar assets`,
+            path: `${path}.regulated`,
+            position: ctx.locate(`${path}.regulated`),
+            helpUri: specUrl('currency-documentation'),
+            suggestion:
+              'Remove regulated, or issue the asset as a classic Stellar account with issuer authorization flags.',
+          });
+        }
+      });
+    },
+  },
+
+  {
     id: 'currencies/collateral-consistency',
     category: 'currencies',
     severity: 'error',
