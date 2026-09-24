@@ -1,5 +1,4 @@
 import { lint } from './lint.js';
-import type { Diagnostic } from './types.js';
 
 interface LspMessage {
   jsonrpc: string;
@@ -155,7 +154,7 @@ function positionToRange(pos?: { line: number; column: number }): Range {
   };
 }
 
-function getCompletions(source: string, position: Position): Array<{
+function getCompletions(_source: string, _position: Position): Array<{
   label: string;
   kind: number;
   detail: string;
