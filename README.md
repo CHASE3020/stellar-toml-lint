@@ -78,9 +78,10 @@ cat stellar.toml | stellar-toml-lint -
 | Flag                 | Effect                                                                |
 | -------------------- | --------------------------------------------------------------------- |
 | `-d, --domain <d>`   | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks |
-| `-f, --format <fmt>` | `text` (default), `json`, `sarif`, `github`                           |
+| `-f, --format <fmt>` | `text` (default), `json`, `sarif`, `github`, `junit`                  |
 | `--strict`           | Treat warnings as errors                                              |
 | `--max-warnings <n>` | Fail if warnings exceed `n`                                           |
+| `--check-network`    | Verify accounts, `HORIZON_URL`, and `ANCHOR_QUOTE_SERVER` online      |
 | `--off <rule>`       | Disable a rule (repeatable)                                           |
 | `--error <rule>`     | Raise a rule to error (repeatable)                                    |
 | `--warn <rule>`      | Lower a rule to warning (repeatable)                                  |
@@ -118,6 +119,21 @@ To route them into the Security tab instead:
   with:
     sarif_file: stellar-toml.sarif
 ```
+
+### JUnit XML reports
+
+Jenkins, Bamboo, CircleCI, and Azure DevOps read JUnit XML to draw test pass/fail charts and suite
+summaries. `--format junit` emits it for them:
+
+```bash
+stellar-toml-lint public/.well-known/stellar.toml --format junit > stellar-toml.xml
+```
+
+Each diagnostic becomes a `<testcase>` named after its rule, carrying the message, the suggestion,
+the spec link, and the source line. Since only errors fail the run, they are reported as `<failure>`
+elements and the warnings and info as `<error>` elements, so a dashboard that counts failures agrees
+with the exit code while the softer findings stay visible. Lint one file per report — each run emits
+a complete `<testsuites>` document, as the other machine-readable formats do.
 
 ### Pre-commit
 
@@ -164,6 +180,8 @@ const result = lint(await readFile('stellar.toml', 'utf8'), {
   rules: { 'general/unknown-field': 'off' },
 });
 
+// The reporters mirror `--format`: formatText (shown here), formatJson,
+// formatJunit, formatSarif, and formatGithub.
 if (!result.ok) {
   console.error(formatText(result, { color: true }));
   process.exit(1);
@@ -234,13 +252,29 @@ Asset-anchored currencies (`is_asset_anchored = true`) must use one of `fiat`, `
 emit `currencies/missing-anchor-asset-type` as an error. Missing `anchor_asset` metadata emits the
 `currencies/missing-anchor-asset-code` warning.
 
-**`[[VALIDATORS]]`** — `ALIAS` matching `^[a-z0-9-]{2,16}$` and unique; checksum-valid, unique
-`PUBLIC_KEY`; `HOST` as `host:port`; `HISTORY` as an absolute URI.
+**`[[VALIDATORS]]`** — `ALIAS` matching `^[a-z0-9-]{2,16}$`, unique, and not colliding with a
+reserved stellar-core config keyword (`self`, `all`, `default`, `none`, `quorum`, `peers`,
+`manual`, `auto`); checksum-valid, unique `PUBLIC_KEY`; `HOST` as `host:port`; `HISTORY` as an
+absolute URI.
 
 **Network** (with `--domain`) — reachability, `Access-Control-Allow-Origin: *`, `text/plain` content
 type, size, and the security of the TLS session: a negotiated protocol of TLS 1.0, TLS 1.1, SSLv2,
 or SSLv3, and cipher suites built on 3DES, DES, RC4, CBC, NULL, or EXPORT primitives. Nothing here
 fires for a local file, so offline linting never depends on a network connection.
+
+**Network** (with `--check-network`) — queries the `HORIZON_URL` endpoint the file advertises and
+asserts it answers with a valid Horizon root document. An endpoint that is offline, misconfigured,
+or returns something other than Horizon JSON emits `network/horizon-unreachable` (error); a
+`current_protocol_version` that the instance's `core_supported_protocol_version` does not cover
+emits `network/horizon-protocol-outdated` (warning). The same flag also verifies `SIGNING_KEY` and
+`ACCOUNTS` exist on the network, and when `ANCHOR_QUOTE_SERVER` is declared it GETs
+`/prices?sell_asset=...` for each classic currency and asserts a 200 whose body carries a
+`buy_assets` array of valid price objects — a 5xx, unreachable server, or HTML where a price object
+belongs emits `sep38/prices-endpoint-error` or `sep38/malformed-price-response` (both errors), so a
+wallet that cannot negotiate exchange rates fails the run instead of at transfer time. The
+`/quote` route is probed too: a 5xx emits `sep38/quote-endpoint-error`, and a 200 that is not a JSON
+object emits `sep38/malformed-quote-response`, while the 400/401/404 a bare unauthenticated GET
+legitimately earns stays silent.
 
 ### Severity
 
