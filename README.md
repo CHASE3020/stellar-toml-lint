@@ -81,11 +81,28 @@ cat stellar.toml | stellar-toml-lint -
 
 ### Options
 
+| Flag                 | Effect                                                                       |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `-d, --domain <d>`   | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks        |
+| `-f, --format <fmt>` | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`, `checkstyle` |
+| `--strict`           | Treat warnings as errors                                                     |
+| `--max-warnings <n>` | Fail if warnings exceed `n`                                                  |
+| `--check-network`    | Verify accounts, `HORIZON_URL`, and `ANCHOR_QUOTE_SERVER` online             |
+| `--off <rule>`       | Disable a rule (repeatable)                                                  |
+| `--error <rule>`     | Raise a rule to error (repeatable)                                           |
+| `--warn <rule>`      | Lower a rule to warning (repeatable)                                         |
+| `-q, --quiet`        | Show errors only                                                             |
+| `--show-help-urls`   | Print the spec link for each finding                                         |
+| `--list-rules`       | Print every rule and exit                                                    |
+| `--no-suggestions`   | Hide diagnostic suggestions in the output                                    |
+| `--check-network`    | Validate `ORG_OFFICIAL_EMAIL` domain MX records for email deliverability     |
+
 | Flag                      | Effect                                                                            |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | `-d, --domain <d>`        | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks             |
 | `-f, --format <fmt>`      | `text` (default), `json`, `sarif`, `github`, `junit`, `html`                      |
 | `-f, --format <fmt>`      | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`                    |
+| `-f, --format <fmt>`      | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`, `checkstyle`      |
 | `--strict`                | Treat warnings as errors                                                          |
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                                       |
 | `--check-network`         | Verify accounts, `HORIZON_URL`, SEP-8 flags, and `ANCHOR_QUOTE_SERVER` online     |
@@ -104,6 +121,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--color`                 | Force colour on, overriding `NO_COLOR`                                            |
 | `--no-color`              | Force colour off                                                                  |
 | `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)                   |
+| `--lsp`                   | Run as a Language Server on stdio (diagnostics + quick-fix code actions)          |
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
 
@@ -131,6 +149,18 @@ draws its own view: drop the format flag.
 `f` currently reports that no fix engine is wired up; #9 tracks the mechanical fixes it will call
 into, and the dashboard already routes the keystroke through a callback so that lands as a one-line
 change rather than a rewrite.
+
+### Editor integration (LSP)
+
+```console
+$ stellar-toml-lint --lsp
+```
+
+Speaks the Language Server Protocol on stdio so editors can show live diagnostics and offer
+quick-fix code actions for mechanically safe findings (strip a trailing slash from an endpoint,
+normalize a near-miss `NETWORK_PASSPHRASE`, reduce a social URL to a bare handle, format a phone
+number as E.164). Unfixable parse errors never produce a code action. Point your editor's LSP
+client at the `stellar-toml-lint` binary with `--lsp`.
 
 ### Alerting a Slack or Discord channel
 
@@ -232,6 +262,19 @@ severity filters (All, Errors, Warnings, Info), and expandable suggestion blocks
 code frames and links into SEP-1. Every string from the linted file is HTML-escaped, so a hostile
 `stellar.toml` cannot inject markup into the report. As with the other document formats, lint one
 file per report.
+### Checkstyle XML reports
+
+Jenkins (via the Warnings NG plugin) and other pipelines that ingest the Checkstyle schema read
+per-file static-analysis results. `--format checkstyle` emits them:
+
+```bash
+stellar-toml-lint public/.well-known/stellar.toml --format checkstyle > stellar-toml-checkstyle.xml
+```
+
+Each linted file becomes one `<file>` element and each diagnostic an `<error>` carrying `line`,
+`column`, `severity`, `message`, and `source` — the rule id, so a dashboard can group, baseline, or
+suppress findings the way it would a Checkstyle check. Severity maps straight across (`error`,
+`warning`, `info`). Lint one file per report, as with the other machine-readable formats.
 
 ### Pre-commit
 
@@ -281,7 +324,7 @@ const result = lint(await readFile('stellar.toml', 'utf8'), {
 // The reporters mirror `--format`: formatText (shown here), formatJson,
 // formatJunit, formatSarif, formatGithub, and formatHtml.
 // The reporters mirror `--format`: formatText (shown here), formatJson, formatNdjson,
-// formatJunit, formatSarif, and formatGithub.
+// formatJunit, formatCheckstyle, formatSarif, and formatGithub.
 if (!result.ok) {
   console.error(formatText(result, { color: true }));
   process.exit(1);
@@ -324,8 +367,11 @@ interface Diagnostic {
 Run `stellar-toml-lint --list-rules` for the authoritative list. In summary:
 
 **File** — 100KB size limit, TOML syntax with line and column, UTF-8 BOM detection.
+`https://` on every endpoint field; trailing-slash detection; checksum-valid `SIGNING_KEY`,
+`URI_REQUEST_SIGNING_KEY`, `WEB_AUTH_CONTRACT_ID`, and `ACCOUNTS`; deprecated fields; unknown fields;
+and empty string values in documentation fields. Under `--check-network`, validates that the domain
+portion of `ORG_OFFICIAL_EMAIL` has MX records for email deliverability.
 
-**General** — `VERSION`; `NETWORK_PASSPHRASE` matched byte-for-byte against the known networks;
 `https://` on every endpoint field; no trailing slashes on service endpoints
 (`WEB_AUTH_ENDPOINT`, `TRANSFER_SERVER`, `TRANSFER_SERVER_SEP0024`, `KYC_SERVER`,
 `ANCHOR_QUOTE_SERVER`, `DIRECT_PAYMENT_SERVER` — a trailing `/` turns client sub-routes into
@@ -360,6 +406,10 @@ Asset-anchored currencies (`is_asset_anchored = true`) must use one of `fiat`, `
 `bond`, `commodity`, `real_estate`, or `other` for `anchor_asset_type`. Missing or invalid values
 emit `currencies/missing-anchor-asset-type` as an error. Missing `anchor_asset` metadata emits the
 `currencies/missing-anchor-asset-code` warning.
+
+Classic assets (without a Soroban `contract`) that configure `display_decimals > 7` emit the
+`currencies/display-decimals-exceeds-max` warning, since the Stellar classic ledger supports at most 7
+decimal places of precision (1 stroop = 0.0000001 XLM).
 
 **`[[VALIDATORS]]`** — `ALIAS` matching `^[a-z0-9-]{2,16}$`, unique, and not colliding with a
 reserved stellar-core config keyword (`self`, `all`, `default`, `none`, `quorum`, `peers`,
@@ -416,6 +466,42 @@ Tune any rule with `--off`, `--warn`, or `--error`.
 New contributors are genuinely welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Issues labelled
 [`good first issue`][gfi] are scoped to be completable in an afternoon, and adding a rule is mostly a
 matter of appending one object to a list and one fixture to a test.
+
+## Integrations
+
+### JetBrains IDE Plugin
+
+Official plugin for IntelliJ IDEA and WebStorm with real-time SEP-1 linting.
+Provides inline diagnostics, quick-fix intentions, and hover documentation.
+
+```bash
+cd integrations/jetbrains && ./gradlew buildPlugin
+```
+
+See [integrations/jetbrains/README.md](./integrations/jetbrains/README.md) for details.
+
+### GitHub App Bot
+
+Official GitHub App for automated `stellar.toml` linting in pull requests.
+Creates interactive Check Runs with inline code suggestions.
+
+See [integrations/github-app/](integrations/github-app/) for details.
+
+### Sublime Text LSP Package
+
+Official Sublime Text LSP helper package providing diagnostics, completions, and hover documentation.
+
+See [integrations/sublime/](integrations/sublime/) for details.
+
+### Performance Benchmarks
+
+Automated performance benchmark and stress-testing harness.
+
+```bash
+npm run bench
+```
+
+See [benchmarks/](benchmarks/) for details.
 
 ## Maintainers
 
