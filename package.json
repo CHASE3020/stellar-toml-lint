@@ -46,7 +46,8 @@
     "dist",
     "templates",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "packaging/homebrew/stellar-toml-lint.rb"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
