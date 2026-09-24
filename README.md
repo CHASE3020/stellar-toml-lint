@@ -55,6 +55,12 @@ npm install --save-dev stellar-toml-lint   # project dependency
 npx stellar-toml-lint                      # or just run it
 ```
 
+### Homebrew
+
+```bash
+brew install anchor-tools/tap/stellar-toml-lint
+```
+
 Requires Node.js 20 or newer. Two runtime dependencies: `smol-toml` and `@stellar/stellar-base`.
 
 ## Usage
@@ -82,6 +88,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--strict`                | Treat warnings as errors                                                          |
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                                       |
 | `--check-network`         | Verify accounts, `HORIZON_URL`, SEP-8 flags, and `ANCHOR_QUOTE_SERVER` online     |
+| `--verify-sep10`         | Verify SEP-10 nonce uniqueness and replay resistance (requires --check-network) |
 | `--check-contracts`       | Verify Soroban contract and WASM TTL liveliness online                            |
 | `--soroban-rpc <url>`     | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`) |
 | `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                                  |
