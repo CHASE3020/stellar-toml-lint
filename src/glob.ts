@@ -43,7 +43,13 @@ export function hasMagic(pattern: string): boolean {
 export async function expandGlob(pattern: string): Promise<string[]> {
   const normalised = pattern.replace(/\\/g, '/');
   const root = parse(normalised).root;
-  const segments = normalised.split('/').filter((segment) => segment !== '');
+  // The root (`/`, `C:/`, `//server/share/`) is already the walk's starting
+  // point; leaving it in the segments would join `C:` onto `C:/` and produce
+  // a path that cannot be read on Windows.
+  const segments = normalised
+    .slice(root.length)
+    .split('/')
+    .filter((segment) => segment !== '');
 
   // A trailing `**` means "everything underneath", which is `**/*` — the
   // globstar alone would otherwise only ever match directories.
