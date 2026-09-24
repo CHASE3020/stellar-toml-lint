@@ -240,7 +240,10 @@ Run `stellar-toml-lint --list-rules` for the authoritative list. In summary:
 flagged with the corrected uppercase form, since wallets compare the string when matching accounts.
 
 **Cross-field dependencies** — `DIRECT_PAYMENT_SERVER` (SEP-31) requires `KYC_SERVER` (SEP-12);
-`WEB_AUTH_ENDPOINT` (SEP-10) requires `SIGNING_KEY`; SEP-45 needs both its endpoint and contract ID.
+`WEB_AUTH_ENDPOINT` (SEP-10) requires `SIGNING_KEY`; SEP-45 needs both its endpoint and contract ID;
+`TRANSFER_SERVER_SEP0024` (SEP-24), `KYC_SERVER` (SEP-12), and `ANCHOR_QUOTE_SERVER` (SEP-38) each
+require `WEB_AUTH_ENDPOINT`; and a declared `TRANSFER_SERVER` or `TRANSFER_SERVER_SEP0024` needs a
+non-empty `[[CURRENCIES]]` list.
 
 **`[DOCUMENTATION]`** — completeness against what wallets weigh when listing an asset; `https://`
 URLs; `ORG_URL` matching the serving domain; attestation documents hosted on your own domain;
@@ -252,9 +255,11 @@ and `ORG_GITHUB` as a valid GitHub username or `https://github.com/<username>` p
 **`[[CURRENCIES]]`** — code length and charset; exactly one of `issuer` or `contract`, both checksum
 validated; the native XLM asset handled as the special case it is; exactly one issuance policy;
 `status` and `anchor_asset_type` enums; `display_decimals` in 0–7; asset-anchored currencies
-requiring a valid `anchor_asset_type` and warning when `anchor_asset` is absent; SEP-8 regulated
-assets carrying an approval server; collateral address, message, and signature lists of equal
-length; `toml` pointer entries carrying nothing else; duplicate assets.
+requiring a valid `anchor_asset_type` and warning when `anchor_asset` is absent; anchored fiat
+requiring a declared transfer server; SEP-8 regulated assets carrying an approval server, with
+`regulated = true` rejected on the native asset and on Soroban contract tokens; collateral address,
+message, and signature lists of equal length; `toml` pointer entries carrying nothing else;
+duplicate assets.
 
 Asset-anchored currencies (`is_asset_anchored = true`) must use one of `fiat`, `crypto`, `stock`,
 `bond`, `commodity`, `real_estate`, or `other` for `anchor_asset_type`. Missing or invalid values
