@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const formulaPath = join(import.meta.dirname ?? '.', '..', 'packaging', 'homebrew', 'stellar-toml-lint.rb');
+const formulaPath = join(
+  import.meta.dirname ?? '.',
+  '..',
+  'packaging',
+  'homebrew',
+  'stellar-toml-lint.rb',
+);
 
 describe('Homebrew formula', () => {
   it('exists at the expected path', () => {
@@ -17,7 +23,7 @@ describe('Homebrew formula', () => {
 
   it('includes a test block verifying stellar-toml-lint --version', () => {
     const content = readFileSync(formulaPath, 'utf8');
-    expect(content).toContain('stellar-toml-lint', '--version');
+    expect(content).toMatch(/stellar-toml-lint.*--version/);
   });
 
   it('declares the node dependency', () => {

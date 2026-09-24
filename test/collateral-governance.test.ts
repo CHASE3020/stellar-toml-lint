@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { checkCollateralGovernance, collateralGovernanceRules, collateralGovernanceRuleIds } from '../src/security/collateral-governance.js';
+import {
+  checkCollateralGovernance,
+  collateralGovernanceRules,
+  collateralGovernanceRuleIds,
+} from '../src/security/collateral-governance.js';
 
 describe('checkCollateralGovernance', () => {
   it('registers both required rule ids', () => {
@@ -28,9 +32,11 @@ describe('checkCollateralGovernance', () => {
 
   it('multi-sig reserve account passes without collateral findings', async () => {
     const doc = {
-      CURRENCIES: [{
-        collateral_addresses: ['GAZ3V7WDE3TADF6UQWU3TAWQPVSW6ZV3NCCW6A7UN6HUDI5WXPMLQDFY'],
-      }],
+      CURRENCIES: [
+        {
+          collateral_addresses: ['GAZ3V7WDE3TADF6UQWU3TAWQPVSW6ZV3NCCW6A7UN6HUDI5WXPMLQDFY'],
+        },
+      ],
     };
     const mockResponse = {
       ok: true,
@@ -47,9 +53,11 @@ describe('checkCollateralGovernance', () => {
 
   it('single key reserve account asserts collateral/single-key-reserve-risk', async () => {
     const doc = {
-      CURRENCIES: [{
-        collateral_addresses: ['GAZ3V7WDE3TADF6UQWU3TAWQPVSW6ZV3NCCW6A7UN6HUDI5WXPMLQDFY'],
-      }],
+      CURRENCIES: [
+        {
+          collateral_addresses: ['GAZ3V7WDE3TADF6UQWU3TAWQPVSW6ZV3NCCW6A7UN6HUDI5WXPMLQDFY'],
+        },
+      ],
     };
     const mockResponse = {
       ok: true,

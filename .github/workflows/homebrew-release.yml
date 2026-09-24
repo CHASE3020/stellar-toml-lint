@@ -31,7 +31,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           repository: anchor-tools/homebrew-tap
           branch: update-stellar-toml-lint-${{ github.ref_name }}
-          title: "Update stellar-toml-lint to ${{ github.ref_name }}"
+          title: 'Update stellar-toml-lint to ${{ github.ref_name }}'
           body: |
             Update stellar-toml-lint to ${{ github.ref_name }}.
 

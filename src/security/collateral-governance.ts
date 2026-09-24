@@ -27,7 +27,11 @@ interface CollateralGovernanceOptions {
   networkPassphrase?: string;
 }
 
-function severityForRule(rule: string, fallback: 'error' | 'warning', rules?: RuleOverrides): 'error' | 'warning' | undefined {
+function severityForRule(
+  rule: string,
+  fallback: 'error' | 'warning',
+  rules?: RuleOverrides,
+): 'error' | 'warning' | undefined {
   const override = rules?.[rule];
   if (override === 'off') return undefined;
   return override === 'error' || override === 'warning' ? override : fallback;
@@ -45,9 +49,10 @@ export async function checkCollateralGovernance(
   const diagnostics: Diagnostic[] = [];
   const fetchImpl = options.fetchImpl ?? fetch;
   const passphrase = options.networkPassphrase ?? Networks.PUBLIC;
-  const horizonUrl = passphrase === Networks.TESTNET
-    ? 'https://horizon-testnet.stellar.org'
-    : 'https://horizon.stellar.org';
+  const horizonUrl =
+    passphrase === Networks.TESTNET
+      ? 'https://horizon-testnet.stellar.org'
+      : 'https://horizon.stellar.org';
 
   const collateralAddresses: string[] = [];
   const currencies = doc.CURRENCIES;
@@ -97,7 +102,8 @@ export async function checkCollateralGovernance(
             message: `Collateral account ${address} is controlled by a single private key`,
             path: `CURRENCIES.collateral_addresses`,
             helpUri: specUrl('general-information'),
-            suggestion: 'Secure collateral accounts with multi-signature governance to prevent single-point-of-failure attacks.',
+            suggestion:
+              'Secure collateral accounts with multi-signature governance to prevent single-point-of-failure attacks.',
           });
         }
       }
@@ -113,7 +119,8 @@ export async function checkCollateralGovernance(
             message: `Collateral account ${address} does not meet multi-party custody threshold requirements`,
             path: `CURRENCIES.collateral_addresses`,
             helpUri: specUrl('general-information'),
-            suggestion: 'Set multi-signature thresholds on collateral accounts to require multiple parties for critical operations.',
+            suggestion:
+              'Set multi-signature thresholds on collateral accounts to require multiple parties for critical operations.',
           });
         }
       }
@@ -144,4 +151,6 @@ export const collateralGovernanceRules: Rule[] = [
 ];
 
 /** Rule ids emitted by {@link checkCollateralGovernance}. */
-export const collateralGovernanceRuleIds: readonly string[] = collateralGovernanceRules.map((rule) => rule.id);
+export const collateralGovernanceRuleIds: readonly string[] = collateralGovernanceRules.map(
+  (rule) => rule.id,
+);

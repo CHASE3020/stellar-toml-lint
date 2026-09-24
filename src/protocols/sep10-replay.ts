@@ -29,7 +29,11 @@ interface Sep10ReplayOptions {
   networkPassphrase?: string;
 }
 
-function severityForRule(rule: string, fallback: 'error' | 'warning', rules?: RuleOverrides): 'error' | 'warning' | undefined {
+function severityForRule(
+  rule: string,
+  fallback: 'error' | 'warning',
+  rules?: RuleOverrides,
+): 'error' | 'warning' | undefined {
   const override = rules?.[rule];
   if (override === 'off') return undefined;
   return override === 'error' || override === 'warning' ? override : fallback;
@@ -95,10 +99,12 @@ export async function checkSep10Replay(
         networkPassphrase: passphrase,
         fee: '100',
       })
-        .addOperation(Operation.manageData({
-          name: `SEP-10 challenge ${i}`,
-          value: Buffer.from(crypto.getRandomValues(new Uint8Array(32))),
-        }))
+        .addOperation(
+          Operation.manageData({
+            name: `SEP-10 challenge ${i}`,
+            value: Buffer.from(crypto.getRandomValues(new Uint8Array(32))),
+          }),
+        )
         .setTimeout(1)
         .build();
 
@@ -125,7 +131,8 @@ export async function checkSep10Replay(
           severity,
           category: 'network',
           message: 'SEP-10 challenge nonces are not globally unique across consecutive requests',
-          suggestion: 'Verify that the SEP-10 server generates fresh random nonces for each challenge.',
+          suggestion:
+            'Verify that the SEP-10 server generates fresh random nonces for each challenge.',
         });
       }
     }
@@ -141,7 +148,8 @@ export async function checkSep10Replay(
           severity,
           category: 'network',
           message: `SEP-10 nonce entropy is ${entropy.toFixed(2)} bits/byte, below the threshold of ${ENTROPY_THRESHOLD}`,
-          suggestion: 'Ensure the SEP-10 server uses a cryptographically secure random nonce generator.',
+          suggestion:
+            'Ensure the SEP-10 server uses a cryptographically secure random nonce generator.',
         });
       }
     }
@@ -164,7 +172,8 @@ export async function checkSep10Replay(
             severity,
             category: 'network',
             message: 'Server accepted a previously submitted SEP-10 challenge transaction',
-            suggestion: 'Ensure the SEP-10 server rejects replayed challenge transactions with HTTP 400.',
+            suggestion:
+              'Ensure the SEP-10 server rejects replayed challenge transactions with HTTP 400.',
           });
         }
       }

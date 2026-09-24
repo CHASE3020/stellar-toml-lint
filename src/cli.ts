@@ -162,24 +162,28 @@ async function main(argv: string[]): Promise<number> {
           }
 
           if (cli.verifySep10 && cli.checkNetwork) {
-            const webAuthEndpoint = (fileResult.parsed as Record<string, unknown>).WEB_AUTH_ENDPOINT;
+            const webAuthEndpoint = (fileResult.parsed as Record<string, unknown>)
+              .WEB_AUTH_ENDPOINT;
             if (typeof webAuthEndpoint === 'string') {
-              const signingKey = typeof (fileResult.parsed as Record<string, unknown>).SIGNING_KEY === 'string'
-                ? ((fileResult.parsed as Record<string, unknown>).SIGNING_KEY as string)
-                : '';
+              const signingKey =
+                typeof (fileResult.parsed as Record<string, unknown>).SIGNING_KEY === 'string'
+                  ? ((fileResult.parsed as Record<string, unknown>).SIGNING_KEY as string)
+                  : '';
               networkDiagnostics.push(
-                ...(await checkSep10Replay(
-                  signingKey,
-                  new URL(webAuthEndpoint).origin,
-                  { rules: cli.rules, fetchImpl: fetch },
-                )),
+                ...(await checkSep10Replay(signingKey, new URL(webAuthEndpoint).origin, {
+                  rules: cli.rules,
+                  fetchImpl: fetch,
+                })),
               );
             }
           }
 
           if (cli.checkNetwork) {
             networkDiagnostics.push(
-              ...(await checkCollateralGovernance(fileResult.parsed, { rules: cli.rules, fetchImpl: fetch })),
+              ...(await checkCollateralGovernance(fileResult.parsed, {
+                rules: cli.rules,
+                fetchImpl: fetch,
+              })),
             );
           }
 

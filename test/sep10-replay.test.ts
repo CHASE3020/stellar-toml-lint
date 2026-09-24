@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { checkSep10Replay, sep10ReplayRules, sep10ReplayRuleIds, shannonEntropy } from '../src/protocols/sep10-replay.js';
+import {
+  checkSep10Replay,
+  sep10ReplayRules,
+  sep10ReplayRuleIds,
+  shannonEntropy,
+} from '../src/protocols/sep10-replay.js';
 
 describe('checkSep10Replay', () => {
   it('registers all three required rule ids', () => {
