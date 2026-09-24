@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Official GitLab CI job template (`templates/gitlab-ci.yml`): include it to run
+  `npx stellar-toml-lint@latest` on `node:22-alpine` with `STELLAR_TOML_PATH`,
+  `STELLAR_TOML_DOMAIN`, `STELLAR_TOML_STRICT`, `STELLAR_TOML_MAX_WARNINGS`, and
+  `STELLAR_TOML_FORMAT` pipeline variables, an npx download cache, and exit-code
+  propagation. Documented under "GitLab CI" in the README (#22).
 - Opt-in `--check-network` flag to query Horizon and report non-existent `SIGNING_KEY` or `ACCOUNTS` entries as warnings (#7).
 
 ### Added

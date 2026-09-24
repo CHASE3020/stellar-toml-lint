@@ -118,6 +118,49 @@ To route them into the Security tab instead:
     sarif_file: stellar-toml.sarif
 ```
 
+### GitLab CI
+
+A ready-made job lives in [`templates/gitlab-ci.yml`](./templates/gitlab-ci.yml). Include it and the
+linter runs on `node:22-alpine` in the `test` stage of every pipeline:
+
+```yaml
+include:
+  - remote: 'https://raw.githubusercontent.com/anchor-tools/stellar-toml-lint/main/templates/gitlab-ci.yml'
+```
+
+If your project defines its own `stages:`, make sure `test` is one of them (or reassign `stage:` by
+redeclaring the job below). To keep the npx download between runs, the job caches `.npm/`.
+
+Configure the job with pipeline variables, project CI/CD variables, or by redeclaring the job —
+the include is deep-merged, so your values win:
+
+```yaml
+include:
+  - remote: 'https://raw.githubusercontent.com/anchor-tools/stellar-toml-lint/main/templates/gitlab-ci.yml'
+
+stellar-toml-lint:
+  variables:
+    STELLAR_TOML_PATH: public/.well-known/stellar.toml
+    STELLAR_TOML_DOMAIN: example.com
+    STELLAR_TOML_STRICT: 'true'
+    STELLAR_TOML_FORMAT: json
+```
+
+Note that a top-level `variables:` block does _not_ override the job's defaults — GitLab gives
+job-level variables higher precedence than top-level ones. Use the job redeclaration above, or set
+the variables in **Settings → CI/CD → Variables** or when running the pipeline.
+
+| Variable                    | Default        | Effect                                                                                 |
+| --------------------------- | -------------- | -------------------------------------------------------------------------------------- |
+| `STELLAR_TOML_PATH`         | `stellar.toml` | Path to the file to lint                                                               |
+| `STELLAR_TOML_DOMAIN`       | _(unset)_      | Serving domain: reachability, CORS, and same-domain checks; alone, lints the live site |
+| `STELLAR_TOML_STRICT`       | `false`        | Treat warnings as errors                                                               |
+| `STELLAR_TOML_MAX_WARNINGS` | _(unset)_      | Fail if the warning count exceeds this number                                          |
+| `STELLAR_TOML_FORMAT`       | `text`         | Output format: `text`, `json`, `sarif`, or `github`                                    |
+
+The linter's exit code is the job's exit code: **0** passes, **1** findings fail the pipeline,
+**2** bad usage or I/O failure.
+
 ### Pre-commit
 
 ```yaml
