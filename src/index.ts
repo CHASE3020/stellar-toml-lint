@@ -24,6 +24,8 @@ export {
 export type { TextReporterOptions } from './reporters.js';
 export { probeTls } from './tls.js';
 export type { TlsProbe } from './tls.js';
+export { createFixtureFetch, fixtureCandidates, MissingFixtureError } from './mock-fixtures.js';
+export type { FixtureFile } from './mock-fixtures.js';
 export type {
   Diagnostic,
   Fix,

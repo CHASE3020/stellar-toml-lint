@@ -117,6 +117,7 @@ stellar-toml-lint   # honours .stellartomlrc.json found upward from ./stellar.to
 | `--verify-sep10`          | Verify SEP-10 nonce uniqueness and replay resistance (requires --check-network)   |
 | `--check-contracts`       | Verify Soroban contract and WASM TTL liveliness online                            |
 | `--soroban-rpc <url>`     | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`) |
+| `--mock-fixtures <dir>`   | Serve network checks from recorded JSON fixtures under `<dir>`, never the network |
 | `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                                  |
 | `--webhook-discord <url>` | POST a Discord embed with the run summary                                         |
 | `--off <rule>`            | Disable a rule (repeatable)                                                       |
@@ -361,6 +362,40 @@ repos:
         files: '\.well-known/stellar\.toml$'
 ```
 
+### Offline and air-gapped CI
+
+Enterprise pipelines run in hermetic sandboxes with no outbound network. `--mock-fixtures <dir>`
+replaces the transport every network check uses — `--check-network`, `--check-contracts`, and the
+`--domain` fetch — with recorded responses read from `<dir>`, so those checks stay deterministic and
+never touch the internet:
+
+```bash
+stellar-toml-lint public/.well-known/stellar.toml \
+  --check-network --check-contracts \
+  --mock-fixtures ./ci/fixtures
+```
+
+A request maps onto the fixture tree by host and path: `https://horizon.stellar.org/accounts/GABC...`
+is served from `<dir>/horizon.stellar.org/accounts/GABC....json`, with a fallback to the shorter host
+label (`<dir>/horizon/accounts/GABC....json`) for trees that drop the TLD. A URL ending in `/` reads
+`index.json`, and query strings are ignored — `GET /prices?sell_asset=...` reads
+`<dir>/<host>/prices.json`.
+
+Each fixture file holds the response body. Wrap it in an object with a `body` key to also set the
+status and headers; a string `body` is served verbatim as text, everything else is JSON-encoded:
+
+```json
+{
+  "status": 404,
+  "headers": { "content-type": "application/json" },
+  "body": { "type": "not_found" }
+}
+```
+
+Fixture mode is strict on purpose: a request with no matching file **fails** with a message naming
+the URL and the paths it looked for, instead of quietly falling through to the network. The only I/O
+performed is reading files under `<dir>`.
+
 ### Monitoring a deployed anchor
 
 ```yaml
@@ -414,6 +449,14 @@ so it injects a `tlsProbe` too — otherwise the audit is skipped rather than gu
 const result = await lintDomain('example.com', {}, myFetch, async (host, port) => {
   return { protocol: 'TLSv1.3', cipher: 'TLS_AES_256_GCM_SHA384' };
 });
+```
+
+Tests and hermetic CI inject recorded responses with the same mechanism that backs `--mock-fixtures`:
+
+```ts
+import { createFixtureFetch } from 'stellar-toml-lint';
+
+const result = await lintDomain('example.com', {}, createFixtureFetch('./ci/fixtures'));
 ```
 
 Every diagnostic carries a stable `rule` id, a `severity`, a dotted `path` to the offending value, a

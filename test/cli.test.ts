@@ -168,6 +168,32 @@ describe('cli', () => {
     const severities = JSON.parse(stdout).diagnostics.map((d: { severity: string }) => d.severity);
     expect(new Set(severities)).toEqual(new Set(['error']));
   });
+
+  it('serves network checks from --mock-fixtures', async () => {
+    const { code, stdout } = await cli([
+      fixture('network/offline-anchor.toml'),
+      '--check-network',
+      '--mock-fixtures',
+      fixture('network'),
+      '-f',
+      'json',
+    ]);
+
+    expect(code).toBe(0);
+    const rules = JSON.parse(stdout).diagnostics.map((d: { rule: string }) => d.rule);
+    expect(rules.filter((rule: string) => rule.startsWith('network/'))).toEqual([]);
+  });
+
+  it('rejects a --mock-fixtures directory that does not exist', async () => {
+    const { code, stderr } = await cli([
+      fixture('network/offline-anchor.toml'),
+      '--check-network',
+      '--mock-fixtures',
+      './definitely-not-here',
+    ]);
+    expect(code).toBe(2);
+    expect(stderr).toContain('--mock-fixtures directory');
+  });
 });
 
 describe('cli --json-schema', () => {
