@@ -26,6 +26,7 @@ import {
 import { generateOpenApiSpec } from './generators/openapi.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
+import { createFixtureFetch } from './mock-fixtures.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
 const VERSION = '0.1.0';
@@ -54,6 +55,7 @@ interface Cli {
   interactive?: boolean;
   checkContracts: boolean;
   sorobanRpc?: string;
+  mockFixtures?: string;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -84,6 +86,10 @@ OPTIONS
                           against the network
       --check-contracts   Verify Soroban contract and WASM TTL liveliness
       --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
+      --mock-fixtures <dir>
+                          Serve network checks from recorded JSON responses under
+                          <dir> instead of the network. A URL with no fixture
+                          fails instead of making a request (hermetic CI)
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -105,6 +111,8 @@ EXAMPLES
   stellar-toml-lint public/.well-known/stellar.toml
   stellar-toml-lint --domain example.com --strict
   stellar-toml-lint -f sarif > results.sarif
+  stellar-toml-lint public/.well-known/stellar.toml --check-network \\\
+    --mock-fixtures ./test/fixtures/network
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -122,14 +130,22 @@ async function main(argv: string[]): Promise<number> {
   const results: { name: string; result: LintResult }[] = [];
 
   try {
+    // Fixture mode replaces the transport for every network-bound check, so a
+    // hermetic run can never reach the internet by accident.
+    const fetchImpl = cli.mockFixtures !== undefined ? createFixtureFetch(cli.mockFixtures) : fetch;
+
     if (cli.domain && cli.paths.length === 0) {
       results.push({
         name: cli.domain,
-        result: await lintDomain(cli.domain, {
-          strict: cli.strict,
-          rules: cli.rules,
-          checkNetwork: cli.checkNetwork,
-        }),
+        result: await lintDomain(
+          cli.domain,
+          {
+            strict: cli.strict,
+            rules: cli.rules,
+            checkNetwork: cli.checkNetwork,
+          },
+          fetchImpl,
+        ),
       });
     } else {
       const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
@@ -147,11 +163,11 @@ async function main(argv: string[]): Promise<number> {
 
           if (cli.checkNetwork) {
             networkDiagnostics.push(
-              ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
-              ...(await checkNetworkAccounts(fileResult.parsed)),
-              ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
-              ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
-              ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetch, {
+              ...(await checkHorizon(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+              ...(await checkNetworkAccounts(fileResult.parsed, fetchImpl)),
+              ...(await checkDisplayDecimals(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+              ...(await checkSep38(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+              ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetchImpl, {
                 rules: cli.rules,
               })),
             );
@@ -159,7 +175,7 @@ async function main(argv: string[]): Promise<number> {
 
           if (cli.checkContracts) {
             networkDiagnostics.push(
-              ...(await checkContracts(fileResult.parsed, fetch, {
+              ...(await checkContracts(fileResult.parsed, fetchImpl, {
                 rules: cli.rules,
                 ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
               })),
@@ -376,6 +392,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '--soroban-rpc':
         cli.sorobanRpc = requireValue(argv, ++i, arg);
+        break;
+
+      case '--mock-fixtures':
+        cli.mockFixtures = requireValue(argv, ++i, arg);
         break;
 
       case '--webhook-slack':

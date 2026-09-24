@@ -9,6 +9,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--mock-fixtures <dir>` serves every network-bound check (`--check-network`,
+  `--check-contracts`, and the `--domain` fetch) from recorded JSON responses under `<dir>` instead of
+  the network, so enterprise CI and air-gapped sandboxes can run them deterministically. Requests map
+  by host and path — with a short host-label fallback and `index.json` for directory URLs — a fixture
+  can set `status` and `headers` through a `body` envelope, and a request with no fixture fails with a
+  clear message rather than making an outbound request. `createFixtureFetch` is exported for
+  embedders (#48).
+
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
   overrides it. Covered by `test/no-color.test.ts` (#148).
