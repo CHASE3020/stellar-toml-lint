@@ -25,6 +25,7 @@ import {
 } from './generators/anchor-platform.js';
 import { generateOpenApiSpec } from './generators/openapi.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
+import { runHealthCheck, formatHealthCheckTable } from './health-check.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
@@ -54,6 +55,7 @@ interface Cli {
   interactive?: boolean;
   checkContracts: boolean;
   sorobanRpc?: string;
+  healthCheck?: boolean;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -83,6 +85,7 @@ OPTIONS
                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
                           against the network
       --check-contracts   Verify Soroban contract and WASM TTL liveliness
+      --health-check      Ping declared endpoints and output latency matrix
       --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
@@ -247,6 +250,19 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
+  let healthCheckFailed = false;
+  if (cli.healthCheck) {
+    for (const { result } of results) {
+      const hcResults = await runHealthCheck(result);
+      if (hcResults.length > 0) {
+        process.stdout.write(formatHealthCheckTable(hcResults, color));
+        if (hcResults.some((r) => r.error || (r.statusCode && r.statusCode >= 400))) {
+          healthCheckFailed = true;
+        }
+      }
+    }
+  }
+
   if (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined) {
     const deliveries = await deliverWebhooks(results, {
       ...(cli.webhookSlack !== undefined ? { slack: cli.webhookSlack } : {}),
@@ -265,6 +281,7 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
+  if (healthCheckFailed) return 1;
   return verdict(results, cli) ? 0 : 1;
 }
 
@@ -368,6 +385,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '--check-network':
         cli.checkNetwork = true;
+        break;
+
+      case '--health-check':
+        cli.healthCheck = true;
         break;
 
       case '--check-contracts':

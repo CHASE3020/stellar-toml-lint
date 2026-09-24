@@ -83,6 +83,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                                       |
 | `--check-network`         | Verify accounts, `HORIZON_URL`, SEP-8 flags, and `ANCHOR_QUOTE_SERVER` online     |
 | `--check-contracts`       | Verify Soroban contract and WASM TTL liveliness online                            |
+| `--health-check`          | Ping declared endpoints and output latency matrix                                 |
 | `--soroban-rpc <url>`     | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`) |
 | `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                                  |
 | `--webhook-discord <url>` | POST a Discord embed with the run summary                                         |
