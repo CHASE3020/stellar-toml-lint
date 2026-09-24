@@ -55,6 +55,12 @@ npm install --save-dev stellar-toml-lint   # project dependency
 npx stellar-toml-lint                      # or just run it
 ```
 
+### Homebrew
+
+```bash
+brew install anchor-tools/tap/stellar-toml-lint
+```
+
 Requires Node.js 20 or newer. Two runtime dependencies: `smol-toml` and `@stellar/stellar-base`.
 
 ## Usage
@@ -78,10 +84,11 @@ cat stellar.toml | stellar-toml-lint -
 | Flag                      | Effect                                                                            |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | `-d, --domain <d>`        | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks             |
-| `-f, --format <fmt>`      | `text` (default), `json`, `sarif`, `github`, `junit`                              |
+| `-f, --format <fmt>`      | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`                    |
 | `--strict`                | Treat warnings as errors                                                          |
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                                       |
 | `--check-network`         | Verify accounts, `HORIZON_URL`, SEP-8 flags, and `ANCHOR_QUOTE_SERVER` online     |
+| `--verify-sep10`          | Verify SEP-10 nonce uniqueness and replay resistance (requires --check-network)   |
 | `--check-contracts`       | Verify Soroban contract and WASM TTL liveliness online                            |
 | `--soroban-rpc <url>`     | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`) |
 | `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                                  |
@@ -312,7 +319,7 @@ const result = lint(await readFile('stellar.toml', 'utf8'), {
   rules: { 'general/unknown-field': 'off' },
 });
 
-// The reporters mirror `--format`: formatText (shown here), formatJson,
+// The reporters mirror `--format`: formatText (shown here), formatJson, formatNdjson,
 // formatJunit, formatSarif, and formatGithub.
 if (!result.ok) {
   console.error(formatText(result, { color: true }));
