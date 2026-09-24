@@ -352,6 +352,10 @@ Asset-anchored currencies (`is_asset_anchored = true`) must use one of `fiat`, `
 emit `currencies/missing-anchor-asset-type` as an error. Missing `anchor_asset` metadata emits the
 `currencies/missing-anchor-asset-code` warning.
 
+Classic assets (without a Soroban `contract`) that configure `display_decimals > 7` emit the
+`currencies/display-decimals-exceeds-max` warning, since the Stellar classic ledger supports at most 7
+decimal places of precision (1 stroop = 0.0000001 XLM).
+
 **`[[VALIDATORS]]`** — `ALIAS` matching `^[a-z0-9-]{2,16}$`, unique, and not colliding with a
 reserved stellar-core config keyword (`self`, `all`, `default`, `none`, `quorum`, `peers`,
 `manual`, `auto`); checksum-valid, unique `PUBLIC_KEY`; `HOST` as `host:port`; `HISTORY` as a
