@@ -239,6 +239,67 @@ To route them into the Security tab instead:
     sarif_file: stellar-toml.sarif
 ```
 
+### Azure DevOps
+
+Copy [`templates/azure-pipelines.yml`](templates/azure-pipelines.yml) into your repository and
+reference it as a steps template:
+
+```yaml
+# azure-pipelines.yml
+steps:
+  - template: templates/azure-pipelines.yml
+    parameters:
+      stellarTomlPath: public/.well-known/stellar.toml
+      strict: true
+      publishTestResults: true
+```
+
+| Parameter            | Default                    | Effect                                                                                                              |
+| -------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `stellarTomlPath`    | `stellar.toml`             | File to lint.                                                                                                       |
+| `format`             | `text`                     | Output format: `text`, `json`, `sarif`, `github`, or `junit`.                                                       |
+| `strict`             | `false`                    | Treat warnings as errors.                                                                                           |
+| `args`               | `''`                       | Extra space-separated CLI flags appended verbatim.                                                                  |
+| `nodeVersion`        | `20.x`                     | Node installed by `NodeTool@0` when running via `npx`.                                                              |
+| `containerImage`     | `''`                       | Run the published `ghcr.io/anchor-tools/stellar-toml-lint` container instead of `npx`.                              |
+| `publishTestResults` | `false`                    | Switch to `--format junit` and publish the report with `PublishTestResults@2`, so the run appears in the Tests tab. |
+| `resultsFile`        | `stellar-toml-results.xml` | Where the JUnit report is written when `publishTestResults` is set.                                                 |
+
+The template installs a Node.js 18+ toolchain (or pulls the container image), runs the linter,
+and, when `publishTestResults` is set, publishes the JUnit report.
+
+### Bitbucket Pipelines
+
+Bitbucket has no cross-file include for step definitions, so copy the `definitions.steps` block
+from [`templates/bitbucket-pipelines.yml`](templates/bitbucket-pipelines.yml) into your
+`bitbucket-pipelines.yml` and merge a definition into any pipeline by name:
+
+```yaml
+# bitbucket-pipelines.yml
+pipelines:
+  default:
+    - step: *stellar-toml-lint-step
+```
+
+Two variants ship in the template:
+
+- `stellar-toml-lint-step` — Node.js 18+ via `npx`, with the `npm` cache enabled so the linter is
+  only downloaded once between runs.
+- `stellar-toml-lint-container-step` — the published
+  `ghcr.io/anchor-tools/stellar-toml-lint` container, whose entrypoint is the linter CLI.
+
+Configure the run with pipeline variables, all optional:
+
+| Variable              | Default        | Effect                                             |
+| --------------------- | -------------- | -------------------------------------------------- |
+| `STELLAR_TOML_PATH`   | `stellar.toml` | File to lint.                                      |
+| `STELLAR_TOML_FORMAT` | `text`         | Output format.                                     |
+| `STELLAR_TOML_STRICT` | `false`        | Set to `true` to treat warnings as errors.         |
+| `STELLAR_TOML_ARGS`   | `''`           | Extra space-separated CLI flags appended verbatim. |
+
+Both templates are validated by a YAML parser in `test/templates.test.ts`, exercised by the
+`test-templates.yml` workflow, so a broken copy-paste template fails CI before it can be merged.
+
 ### JUnit XML reports
 
 Jenkins, Bamboo, CircleCI, and Azure DevOps read JUnit XML to draw test pass/fail charts and suite
