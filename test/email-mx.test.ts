@@ -2,13 +2,12 @@ import { strict as assert } from 'node:assert';
 import { describe, it, vi } from 'vitest';
 import { emailMxRule } from '../src/rules/email-mx.js';
 import type { RuleContext } from '../src/types.js';
+import { resolveMx } from 'node:dns/promises';
 
-// Mock dns.promises.resolveMx globally
-vi.stubGlobal('dns', {
-  promises: {
-    resolveMx: vi.fn(),
-  },
-} as any);
+// Mock dns.promises.resolveMx
+vi.mock('node:dns/promises', async () => ({
+  resolveMx: vi.fn(),
+}));
 
 function makeContext(doc: Record<string, unknown>): RuleContext {
   const source = `VERSION="2.7.0"\nNETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"\n[DOCUMENTATION]\nORG_NAME="Example"\nORG_URL="https://example.com"\nORG_DESCRIPTION="Example"\nORG_OFFICIAL_EMAIL="ops@example.com"\n`;
@@ -29,7 +28,7 @@ function makeContext(doc: Record<string, unknown>): RuleContext {
   return {
     doc,
     source,
-    options: { rules: {}, strict: false },
+    options: { rules: {}, strict: false, checkNetwork: true },
     locate: (path: string): { line: number; column: number } | undefined => {
       const line = pathToLine[path];
       if (line === undefined) return undefined;
@@ -37,13 +36,13 @@ function makeContext(doc: Record<string, unknown>): RuleContext {
       const column = lineContent.indexOf(path.split('.').pop() ?? '') + 1;
       return { line, column };
     },
-    report: (_d: any) => {},
+    report: () => {},
   } as RuleContext;
 }
 
 describe('email-mx', () => {
   it('passes when MX records resolve', async () => {
-    ;(globalThis.dns as any).promises.resolveMx.mockResolvedValue(['alt1.aspmx.l.google.com', 'alt2.aspmx.l.google.com']);
+    vi.mocked(resolveMx).mockResolvedValue(['alt1.aspmx.l.google.com', 'alt2.aspmx.l.google.com']);
 
     const doc = {
       VERSION: '2.7.0',
@@ -72,7 +71,7 @@ describe('email-mx', () => {
   });
 
   it('asserts general/email-domain-no-mx when DNS lookup fails with ENOENT', async () => {
-    ;(globalThis.dns as any).promises.resolveMx.mockRejectedValue(new Error('ENOENT'));
+    vi.mocked(resolveMx).mockRejectedValue(new Error('ENOENT'));
 
     const doc = {
       VERSION: '2.7.0',
@@ -101,7 +100,7 @@ describe('email-mx', () => {
   });
 
   it('asserts general/email-domain-no-mx when DNS lookup fails with NETWORK', async () => {
-    ;(globalThis.dns as any).promises.resolveMx.mockRejectedValue(new Error('NETWORK'));
+    vi.mocked(resolveMx).mockRejectedValue(new Error('NETWORK'));
 
     const doc = {
       VERSION: '2.7.0',
@@ -152,7 +151,7 @@ describe('email-mx', () => {
   });
 
   it('is silent when ORG_OFFICIAL_EMAIL has no @ sign', async () => {
-    ;(globalThis.dns as any).promises.resolveMx.mockResolvedValue([]);
+    vi.mocked(resolveMx).mockResolvedValue([]);
 
     const doc = {
       VERSION: '2.7.0',

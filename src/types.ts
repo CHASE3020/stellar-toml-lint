@@ -82,6 +82,8 @@ export interface LintOptions {
    * exercised without opening a socket.
    */
   tls?: TlsSession;
+  /** When true, perform network checks (MX records, account existence). */
+  checkNetwork?: boolean;
 }
 
 export interface LintResult {
