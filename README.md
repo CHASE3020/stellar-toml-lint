@@ -62,6 +62,8 @@ brew install anchor-tools/tap/stellar-toml-lint
 ```
 
 Requires Node.js 20 or newer. Two runtime dependencies: `smol-toml` and `@stellar/stellar-base`.
+Commit a `.stellartomlrc.json` next to your `stellar.toml` to record the project's rule policy once
+instead of repeating `--off`/`--warn` flags in every workflow (see [Usage](#usage)).
 
 ## Usage
 
@@ -77,6 +79,12 @@ stellar-toml-lint public/.well-known/stellar.toml --domain example.com
 
 # Read from stdin
 cat stellar.toml | stellar-toml-lint -
+```
+
+Rule policy discovered from a config file needs no flags at all:
+
+```bash
+stellar-toml-lint   # honours .stellartomlrc.json found upward from ./stellar.toml
 ```
 
 ### Options
@@ -120,6 +128,8 @@ cat stellar.toml | stellar-toml-lint -
 | `--no-color`              | Force colour off                                                                  |
 | `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)                   |
 | `--lsp`                   | Run as a Language Server on stdio (diagnostics + quick-fix code actions)          |
+
+Every flag above takes precedence over the [configuration file](#configuration-file).
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
 
