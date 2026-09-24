@@ -9,10 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `currencies/display-decimals` now emits an `info` diagnostic when a native-asset `[[CURRENCIES]]`
-  entry (`code="native"`, or bare `XLM` with no issuer/contract) sets `display_decimals`. XLM's
-  7-decimal scale is fixed by the protocol, so the field is meaningless there and can mislead
-  wallets into rendering the native asset at the wrong scale (#4).
+- Interactive quick-fix code actions over LSP (#42): `stellar-toml-lint --lsp` runs a stdio Language
+  Server that publishes diagnostics and answers `textDocument/codeAction` with `WorkspaceEdit`
+  replacements for mechanically safe rules — `general/trailing-slash-in-endpoint`,
+  `network/passphrase` (near miss), `documentation/social-handles`, `principals/social-handles`,
+  and `documentation/phone-e164`. Diagnostics that cannot be corrected safely (parse errors,
+  missing tables) offer no action. Shared fix engine lives in `src/fix.ts` for `--fix` (#9) to reuse.
 
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`

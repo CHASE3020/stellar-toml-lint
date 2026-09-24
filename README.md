@@ -103,6 +103,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--color`                 | Force colour on, overriding `NO_COLOR`                                            |
 | `--no-color`              | Force colour off                                                                  |
 | `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)                   |
+| `--lsp`                   | Run as a Language Server on stdio (diagnostics + quick-fix code actions)          |
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
 
@@ -130,6 +131,18 @@ draws its own view: drop the format flag.
 `f` currently reports that no fix engine is wired up; #9 tracks the mechanical fixes it will call
 into, and the dashboard already routes the keystroke through a callback so that lands as a one-line
 change rather than a rewrite.
+
+### Editor integration (LSP)
+
+```console
+$ stellar-toml-lint --lsp
+```
+
+Speaks the Language Server Protocol on stdio so editors can show live diagnostics and offer
+quick-fix code actions for mechanically safe findings (strip a trailing slash from an endpoint,
+normalize a near-miss `NETWORK_PASSPHRASE`, reduce a social URL to a bare handle, format a phone
+number as E.164). Unfixable parse errors never produce a code action. Point your editor's LSP
+client at the `stellar-toml-lint` binary with `--lsp`.
 
 ### Alerting a Slack or Discord channel
 
@@ -339,6 +352,10 @@ Asset-anchored currencies (`is_asset_anchored = true`) must use one of `fiat`, `
 `bond`, `commodity`, `real_estate`, or `other` for `anchor_asset_type`. Missing or invalid values
 emit `currencies/missing-anchor-asset-type` as an error. Missing `anchor_asset` metadata emits the
 `currencies/missing-anchor-asset-code` warning.
+
+Classic assets (without a Soroban `contract`) that configure `display_decimals > 7` emit the
+`currencies/display-decimals-exceeds-max` warning, since the Stellar classic ledger supports at most 7
+decimal places of precision (1 stroop = 0.0000001 XLM).
 
 **`[[VALIDATORS]]`** — `ALIAS` matching `^[a-z0-9-]{2,16}$`, unique, and not colliding with a
 reserved stellar-core config keyword (`self`, `all`, `default`, `none`, `quorum`, `peers`,
