@@ -15,6 +15,8 @@ import {
   formatGithub,
   formatHtml,
   formatJson,
+  formatJson,
+  formatNdjson,
   formatJunit,
   formatSarif,
   formatText,
@@ -33,12 +35,15 @@ import {
 import { generateOpenApiSpec } from './generators/openapi.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
+import { checkSep10Replay } from './protocols/sep10-replay.js';
+import { checkCollateralGovernance } from './security/collateral-governance.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
 
 type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit' | 'html';
+type Format = 'text' | 'json' | 'ndjson' | 'sarif' | 'github' | 'junit';
 
 interface Cli {
   noSuggestions?: boolean;
@@ -52,6 +57,7 @@ interface Cli {
   rules: RuleOverrides;
   maxWarnings?: number;
   checkNetwork: boolean;
+  verifySep10: boolean;
   badgeSvg?: string;
   badgeJson?: string;
   exportApConfig?: boolean;
@@ -76,6 +82,7 @@ OPTIONS
   -d, --domain <domain>   Domain serving the file. Enables CORS, content-type and
                           ORG_URL same-domain checks. Fetches unless files are given.
   -f, --format <fmt>      text (default), json, sarif, github, junit, or html
+  -f, --format <fmt>      text (default), json, ndjson, sarif, github, or junit
       --strict            Treat warnings as errors
       --max-warnings <n>  Fail if warnings exceed n
       --off <rule>        Disable a rule (repeatable)
@@ -86,11 +93,12 @@ OPTIONS
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
-      --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
-                          regulated issuer flags, and ANCHOR_QUOTE_SERVER
-                          against the network
-      --check-contracts   Verify Soroban contract and WASM TTL liveliness
-      --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
+       --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
+                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
+                           against the network
+       --verify-sep10      Verify SEP-10 nonce uniqueness and replay resistance
+       --check-contracts   Verify Soroban contract and WASM TTL liveliness
+       --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -160,6 +168,32 @@ async function main(argv: string[]): Promise<number> {
               ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
               ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetch, {
                 rules: cli.rules,
+              })),
+            );
+          }
+
+          if (cli.verifySep10 && cli.checkNetwork) {
+            const webAuthEndpoint = (fileResult.parsed as Record<string, unknown>)
+              .WEB_AUTH_ENDPOINT;
+            if (typeof webAuthEndpoint === 'string') {
+              const signingKey =
+                typeof (fileResult.parsed as Record<string, unknown>).SIGNING_KEY === 'string'
+                  ? ((fileResult.parsed as Record<string, unknown>).SIGNING_KEY as string)
+                  : '';
+              networkDiagnostics.push(
+                ...(await checkSep10Replay(signingKey, new URL(webAuthEndpoint).origin, {
+                  rules: cli.rules,
+                  fetchImpl: fetch,
+                })),
+              );
+            }
+          }
+
+          if (cli.checkNetwork) {
+            networkDiagnostics.push(
+              ...(await checkCollateralGovernance(fileResult.parsed, {
+                rules: cli.rules,
+                fetchImpl: fetch,
               })),
             );
           }
@@ -279,6 +313,8 @@ function render(result: LintResult, name: string, cli: Cli, color: boolean): str
   switch (cli.format) {
     case 'json':
       return formatJson(result, name);
+    case 'ndjson':
+      return formatNdjson(result, name);
     case 'sarif':
       return formatSarif(result, name, VERSION);
     case 'github':
@@ -324,6 +360,7 @@ function parseArgs(argv: string[]): Cli | 'handled' {
     showHelp: false,
     rules: {},
     checkNetwork: false,
+    verifySep10: false,
     checkContracts: false,
   };
 
@@ -377,6 +414,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '--check-network':
         cli.checkNetwork = true;
+        break;
+
+      case '--verify-sep10':
+        cli.verifySep10 = true;
         break;
 
       case '--check-contracts':
@@ -470,6 +511,7 @@ function isFormat(value: string): value is Format {
   return (
     value === 'text' ||
     value === 'json' ||
+    value === 'ndjson' ||
     value === 'sarif' ||
     value === 'github' ||
     value === 'junit' ||
