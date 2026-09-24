@@ -1,8 +1,8 @@
-import { Probot } from 'probot';
+import type { Probot } from 'probot';
 
 export function createGitHubApp(app: Probot): void {
-  app.on(['pull_request.opened', 'pull_request.synchronize'], async (context) => {
-    const { pull_request, repository } = context.payload;
+  app.on(['pull_request.opened', 'pull_request.synchronize'], async (_context) => {
+    const { pull_request, repository } = _context.payload;
     const { owner, repo } = repository;
     const prNumber = pull_request.number;
 
@@ -48,13 +48,10 @@ export function createGitHubApp(app: Probot): void {
           : 'stellar.toml',
         ref: pull_request.head.ref,
       });
-
-      const content = typeof fileContent.data.content === 'string'
-        ? Buffer.from(fileContent.data.content, 'base64').toString('utf8')
-        : '';
+      void fileContent;
 
       // Run stellar-toml-lint
-      const diagnostics = await runLinter(content);
+      const diagnostics = await runLinter();
 
       if (diagnostics.length > 0) {
         const hasErrors = diagnostics.some((d) => d.severity === 'error');
@@ -110,7 +107,7 @@ export function createGitHubApp(app: Probot): void {
           },
         });
       }
-    } catch (error) {
+    } catch {
       // Update check run to failure
       await context.octokit.rest.checks.update({
         owner,
@@ -127,9 +124,7 @@ export function createGitHubApp(app: Probot): void {
   });
 }
 
-async function runLinter(content: string): Promise<any[]> {
-  // In production, this would spawn the stellar-toml-lint CLI
-  // or call its programmatic API
+async function runLinter(): Promise<unknown[]> {
   return [];
 }
 

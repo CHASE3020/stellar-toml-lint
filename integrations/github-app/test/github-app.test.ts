@@ -1,9 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 
-async function runLinter(content: string): Promise<any[]> {
-  return [];
-}
-
 describe('GitHub App', () => {
   it('should detect PRs that modify stellar.toml', async () => {
     const files = [
@@ -32,15 +28,13 @@ describe('GitHub App', () => {
 
   it('should create a check run for PRs modifying stellar.toml', async () => {
     const mockChecksCreate = vi.fn().mockResolvedValue({ data: { id: 1 } });
-    const mockOctokit = {
-      rest: {
-        checks: { create: mockChecksCreate, update: vi.fn() },
-        pulls: { listFiles: vi.fn().mockResolvedValue({ data: [{ filename: 'stellar.toml', status: 'modified' }] }) },
-        repos: { getContent: vi.fn() },
-        issues: { createComment: vi.fn() },
-      },
+    const mockRest = {
+      checks: { create: mockChecksCreate, update: vi.fn() },
+      pulls: { listFiles: vi.fn().mockResolvedValue({ data: [{ filename: 'stellar.toml', status: 'modified' }] }) },
+      repos: { getContent: vi.fn() },
+      issues: { createComment: vi.fn() },
     };
-    const context = { octokit: mockOctokit, payload: { repository: { owner: 'test', repo: 'test' }, pull_request: { number: 1, head: { sha: 'abc123', ref: 'main' } } } };
+    void mockRest;
     expect(mockChecksCreate).toBeDefined();
   });
 
