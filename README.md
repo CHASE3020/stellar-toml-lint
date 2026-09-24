@@ -244,7 +244,8 @@ flagged with the corrected uppercase form, since wallets compare the string when
 
 **`[DOCUMENTATION]`** — completeness against what wallets weigh when listing an asset; `https://`
 URLs; `ORG_URL` matching the serving domain; attestation documents hosted on your own domain;
-`ORG_OFFICIAL_EMAIL` at the `ORG_URL` domain; E.164 phone format; handles that are handles, not URLs.
+`ORG_OFFICIAL_EMAIL` at the `ORG_URL` domain; E.164 phone format; handles that are handles, not URLs;
+and `ORG_GITHUB` as a valid GitHub username or `https://github.com/<username>` profile URL.
 
 **`[[PRINCIPALS]]`** — name and email present and well-formed; hex photo hashes of plausible length.
 

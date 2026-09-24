@@ -17,6 +17,7 @@ import {
   isUrl,
 } from '../predicates.js';
 import { emptyStringValuesRule } from './empty-values.js';
+import { githubHandleRules } from './github-handle.js';
 import { trailingSlashRule } from './trailing-slash.js';
 import { uppercaseKeyRules } from './uppercase-keys.js';
 
@@ -414,4 +415,5 @@ export const generalRules: Rule[] = [
     },
   },
   emptyStringValuesRule,
+  ...githubHandleRules,
 ];
