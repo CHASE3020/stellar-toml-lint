@@ -11,7 +11,14 @@ import { basename } from 'node:path';
 import process from 'node:process';
 import { lint, lintDomain, finalize } from './lint.js';
 import { checkNetworkAccounts } from './network-checks.js';
-import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
+import {
+  formatGithub,
+  formatHtml,
+  formatJson,
+  formatJunit,
+  formatSarif,
+  formatText,
+} from './reporters.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
 import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
@@ -31,7 +38,7 @@ import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js
 const VERSION = '0.1.0';
 const DEFAULT_PATH = 'stellar.toml';
 
-type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit';
+type Format = 'text' | 'json' | 'sarif' | 'github' | 'junit' | 'html';
 
 interface Cli {
   noSuggestions?: boolean;
@@ -68,7 +75,7 @@ USAGE
 OPTIONS
   -d, --domain <domain>   Domain serving the file. Enables CORS, content-type and
                           ORG_URL same-domain checks. Fetches unless files are given.
-  -f, --format <fmt>      text (default), json, sarif, github, or junit
+  -f, --format <fmt>      text (default), json, sarif, github, junit, or html
       --strict            Treat warnings as errors
       --max-warnings <n>  Fail if warnings exceed n
       --off <rule>        Disable a rule (repeatable)
@@ -278,6 +285,8 @@ function render(result: LintResult, name: string, cli: Cli, color: boolean): str
       return formatGithub(result, name);
     case 'junit':
       return formatJunit(result, name);
+    case 'html':
+      return formatHtml(result, name);
     case 'text':
       return formatText(result, {
         filename: name,
@@ -346,7 +355,7 @@ function parseArgs(argv: string[]): Cli | 'handled' {
         const value = requireValue(argv, ++i, arg);
         if (!isFormat(value)) {
           throw new Error(
-            `Unknown format "${value}". Expected text, json, sarif, github, or junit.`,
+            `Unknown format "${value}". Expected text, json, sarif, github, junit, or html.`,
           );
         }
         cli.format = value;
@@ -463,7 +472,8 @@ function isFormat(value: string): value is Format {
     value === 'json' ||
     value === 'sarif' ||
     value === 'github' ||
-    value === 'junit'
+    value === 'junit' ||
+    value === 'html'
   );
 }
 

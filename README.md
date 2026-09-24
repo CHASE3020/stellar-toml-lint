@@ -78,7 +78,7 @@ cat stellar.toml | stellar-toml-lint -
 | Flag                      | Effect                                                                            |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | `-d, --domain <d>`        | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks             |
-| `-f, --format <fmt>`      | `text` (default), `json`, `sarif`, `github`, `junit`                              |
+| `-f, --format <fmt>`      | `text` (default), `json`, `sarif`, `github`, `junit`, `html`                      |
 | `--strict`                | Treat warnings as errors                                                          |
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                                       |
 | `--check-network`         | Verify accounts, `HORIZON_URL`, SEP-8 flags, and `ANCHOR_QUOTE_SERVER` online     |
@@ -206,6 +206,25 @@ elements and the warnings and info as `<error>` elements, so a dashboard that co
 with the exit code while the softer findings stay visible. Lint one file per report — each run emits
 a complete `<testsuites>` document, as the other machine-readable formats do.
 
+### HTML audit reports
+
+For compliance audits, security reviews, and anchor governance, `--format html` writes a
+standalone, single-page audit report you can archive, attach to compliance documentation, or host
+as a static artifact:
+
+```bash
+stellar-toml-lint public/.well-known/stellar.toml --format html > report.html
+```
+
+The report is fully self-contained — inlined styles, one small inline script for the severity
+filters, zero external scripts or fonts — so it renders from a `file://` URL, an air-gapped
+machine, or a static host without touching the network. It includes the file name, timestamp, and
+a Pass/Fail badge in the header, the Wallet Readiness grade and score bar, a diagnostic table with
+severity filters (All, Errors, Warnings, Info), and expandable suggestion blocks with line/column
+code frames and links into SEP-1. Every string from the linted file is HTML-escaped, so a hostile
+`stellar.toml` cannot inject markup into the report. As with the other document formats, lint one
+file per report.
+
 ### Pre-commit
 
 ```yaml
@@ -252,7 +271,7 @@ const result = lint(await readFile('stellar.toml', 'utf8'), {
 });
 
 // The reporters mirror `--format`: formatText (shown here), formatJson,
-// formatJunit, formatSarif, and formatGithub.
+// formatJunit, formatSarif, formatGithub, and formatHtml.
 if (!result.ok) {
   console.error(formatText(result, { color: true }));
   process.exit(1);
