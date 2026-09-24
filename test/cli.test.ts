@@ -168,4 +168,46 @@ describe('cli', () => {
     const severities = JSON.parse(stdout).diagnostics.map((d: { severity: string }) => d.severity);
     expect(new Set(severities)).toEqual(new Set(['error']));
   });
+
+  it('serves network checks from --mock-fixtures', async () => {
+    const { code, stdout } = await cli([
+      fixture('network/offline-anchor.toml'),
+      '--check-network',
+      '--mock-fixtures',
+      fixture('network'),
+      '-f',
+      'json',
+    ]);
+
+    expect(code).toBe(0);
+    const rules = JSON.parse(stdout).diagnostics.map((d: { rule: string }) => d.rule);
+    expect(rules.filter((rule: string) => rule.startsWith('network/'))).toEqual([]);
+  });
+
+  it('rejects a --mock-fixtures directory that does not exist', async () => {
+    const { code, stderr } = await cli([
+      fixture('network/offline-anchor.toml'),
+      '--check-network',
+      '--mock-fixtures',
+      './definitely-not-here',
+    ]);
+    expect(code).toBe(2);
+    expect(stderr).toContain('--mock-fixtures directory');
+  });
+});
+
+describe('cli --json-schema', () => {
+  it('exits 0 and emits a JSON schema to stdout', async () => {
+    const { code, stdout } = await cli(['--json-schema']);
+    expect(code).toBe(0);
+
+    const schema = JSON.parse(stdout) as Record<string, unknown>;
+    expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
+    expect(schema.type).toBe('object');
+
+    const properties = schema.properties as Record<string, unknown>;
+    for (const section of ['DOCUMENTATION', 'PRINCIPALS', 'CURRENCIES', 'VALIDATORS']) {
+      expect(properties[section], `missing ${section}`).toBeDefined();
+    }
+  });
 });

@@ -62,6 +62,8 @@ brew install anchor-tools/tap/stellar-toml-lint
 ```
 
 Requires Node.js 20 or newer. Two runtime dependencies: `smol-toml` and `@stellar/stellar-base`.
+Commit a `.stellartomlrc.json` next to your `stellar.toml` to record the project's rule policy once
+instead of repeating `--off`/`--warn` flags in every workflow (see [Usage](#usage)).
 
 ## Usage
 
@@ -77,6 +79,12 @@ stellar-toml-lint public/.well-known/stellar.toml --domain example.com
 
 # Read from stdin
 cat stellar.toml | stellar-toml-lint -
+```
+
+Rule policy discovered from a config file needs no flags at all:
+
+```bash
+stellar-toml-lint   # honours .stellartomlrc.json found upward from ./stellar.toml
 ```
 
 ### Options
@@ -100,6 +108,8 @@ cat stellar.toml | stellar-toml-lint -
 | Flag                      | Effect                                                                            |
 | ------------------------- | --------------------------------------------------------------------------------- |
 | `-d, --domain <d>`        | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks             |
+| `-f, --format <fmt>`      | `text` (default), `json`, `sarif`, `github`, `junit`, `html`                      |
+| `-f, --format <fmt>`      | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`                    |
 | `-f, --format <fmt>`      | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`, `checkstyle`      |
 | `--strict`                | Treat warnings as errors                                                          |
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                                       |
@@ -107,6 +117,7 @@ cat stellar.toml | stellar-toml-lint -
 | `--verify-sep10`          | Verify SEP-10 nonce uniqueness and replay resistance (requires --check-network)   |
 | `--check-contracts`       | Verify Soroban contract and WASM TTL liveliness online                            |
 | `--soroban-rpc <url>`     | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`) |
+| `--mock-fixtures <dir>`   | Serve network checks from recorded JSON fixtures under `<dir>`, never the network |
 | `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                                  |
 | `--webhook-discord <url>` | POST a Discord embed with the run summary                                         |
 | `--off <rule>`            | Disable a rule (repeatable)                                                       |
@@ -120,6 +131,8 @@ cat stellar.toml | stellar-toml-lint -
 | `--no-color`              | Force colour off                                                                  |
 | `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)                   |
 | `--lsp`                   | Run as a Language Server on stdio (diagnostics + quick-fix code actions)          |
+
+Every flag above takes precedence over the [configuration file](#configuration-file).
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
 
@@ -227,6 +240,67 @@ To route them into the Security tab instead:
     sarif_file: stellar-toml.sarif
 ```
 
+### Azure DevOps
+
+Copy [`templates/azure-pipelines.yml`](templates/azure-pipelines.yml) into your repository and
+reference it as a steps template:
+
+```yaml
+# azure-pipelines.yml
+steps:
+  - template: templates/azure-pipelines.yml
+    parameters:
+      stellarTomlPath: public/.well-known/stellar.toml
+      strict: true
+      publishTestResults: true
+```
+
+| Parameter            | Default                    | Effect                                                                                                              |
+| -------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `stellarTomlPath`    | `stellar.toml`             | File to lint.                                                                                                       |
+| `format`             | `text`                     | Output format: `text`, `json`, `sarif`, `github`, or `junit`.                                                       |
+| `strict`             | `false`                    | Treat warnings as errors.                                                                                           |
+| `args`               | `''`                       | Extra space-separated CLI flags appended verbatim.                                                                  |
+| `nodeVersion`        | `20.x`                     | Node installed by `NodeTool@0` when running via `npx`.                                                              |
+| `containerImage`     | `''`                       | Run the published `ghcr.io/anchor-tools/stellar-toml-lint` container instead of `npx`.                              |
+| `publishTestResults` | `false`                    | Switch to `--format junit` and publish the report with `PublishTestResults@2`, so the run appears in the Tests tab. |
+| `resultsFile`        | `stellar-toml-results.xml` | Where the JUnit report is written when `publishTestResults` is set.                                                 |
+
+The template installs a Node.js 18+ toolchain (or pulls the container image), runs the linter,
+and, when `publishTestResults` is set, publishes the JUnit report.
+
+### Bitbucket Pipelines
+
+Bitbucket has no cross-file include for step definitions, so copy the `definitions.steps` block
+from [`templates/bitbucket-pipelines.yml`](templates/bitbucket-pipelines.yml) into your
+`bitbucket-pipelines.yml` and merge a definition into any pipeline by name:
+
+```yaml
+# bitbucket-pipelines.yml
+pipelines:
+  default:
+    - step: *stellar-toml-lint-step
+```
+
+Two variants ship in the template:
+
+- `stellar-toml-lint-step` — Node.js 18+ via `npx`, with the `npm` cache enabled so the linter is
+  only downloaded once between runs.
+- `stellar-toml-lint-container-step` — the published
+  `ghcr.io/anchor-tools/stellar-toml-lint` container, whose entrypoint is the linter CLI.
+
+Configure the run with pipeline variables, all optional:
+
+| Variable              | Default        | Effect                                             |
+| --------------------- | -------------- | -------------------------------------------------- |
+| `STELLAR_TOML_PATH`   | `stellar.toml` | File to lint.                                      |
+| `STELLAR_TOML_FORMAT` | `text`         | Output format.                                     |
+| `STELLAR_TOML_STRICT` | `false`        | Set to `true` to treat warnings as errors.         |
+| `STELLAR_TOML_ARGS`   | `''`           | Extra space-separated CLI flags appended verbatim. |
+
+Both templates are validated by a YAML parser in `test/templates.test.ts`, exercised by the
+`test-templates.yml` workflow, so a broken copy-paste template fails CI before it can be merged.
+
 ### JUnit XML reports
 
 Jenkins, Bamboo, CircleCI, and Azure DevOps read JUnit XML to draw test pass/fail charts and suite
@@ -242,6 +316,24 @@ elements and the warnings and info as `<error>` elements, so a dashboard that co
 with the exit code while the softer findings stay visible. Lint one file per report — each run emits
 a complete `<testsuites>` document, as the other machine-readable formats do.
 
+### HTML audit reports
+
+For compliance audits, security reviews, and anchor governance, `--format html` writes a
+standalone, single-page audit report you can archive, attach to compliance documentation, or host
+as a static artifact:
+
+```bash
+stellar-toml-lint public/.well-known/stellar.toml --format html > report.html
+```
+
+The report is fully self-contained — inlined styles, one small inline script for the severity
+filters, zero external scripts or fonts — so it renders from a `file://` URL, an air-gapped
+machine, or a static host without touching the network. It includes the file name, timestamp, and
+a Pass/Fail badge in the header, the Wallet Readiness grade and score bar, a diagnostic table with
+severity filters (All, Errors, Warnings, Info), and expandable suggestion blocks with line/column
+code frames and links into SEP-1. Every string from the linted file is HTML-escaped, so a hostile
+`stellar.toml` cannot inject markup into the report. As with the other document formats, lint one
+file per report.
 ### Checkstyle XML reports
 
 Jenkins (via the Warnings NG plugin) and other pipelines that ingest the Checkstyle schema read
@@ -269,6 +361,40 @@ repos:
         language: system
         files: '\.well-known/stellar\.toml$'
 ```
+
+### Offline and air-gapped CI
+
+Enterprise pipelines run in hermetic sandboxes with no outbound network. `--mock-fixtures <dir>`
+replaces the transport every network check uses — `--check-network`, `--check-contracts`, and the
+`--domain` fetch — with recorded responses read from `<dir>`, so those checks stay deterministic and
+never touch the internet:
+
+```bash
+stellar-toml-lint public/.well-known/stellar.toml \
+  --check-network --check-contracts \
+  --mock-fixtures ./ci/fixtures
+```
+
+A request maps onto the fixture tree by host and path: `https://horizon.stellar.org/accounts/GABC...`
+is served from `<dir>/horizon.stellar.org/accounts/GABC....json`, with a fallback to the shorter host
+label (`<dir>/horizon/accounts/GABC....json`) for trees that drop the TLD. A URL ending in `/` reads
+`index.json`, and query strings are ignored — `GET /prices?sell_asset=...` reads
+`<dir>/<host>/prices.json`.
+
+Each fixture file holds the response body. Wrap it in an object with a `body` key to also set the
+status and headers; a string `body` is served verbatim as text, everything else is JSON-encoded:
+
+```json
+{
+  "status": 404,
+  "headers": { "content-type": "application/json" },
+  "body": { "type": "not_found" }
+}
+```
+
+Fixture mode is strict on purpose: a request with no matching file **fails** with a message naming
+the URL and the paths it looked for, instead of quietly falling through to the network. The only I/O
+performed is reading files under `<dir>`.
 
 ### Monitoring a deployed anchor
 
@@ -301,6 +427,8 @@ const result = lint(await readFile('stellar.toml', 'utf8'), {
   rules: { 'general/unknown-field': 'off' },
 });
 
+// The reporters mirror `--format`: formatText (shown here), formatJson,
+// formatJunit, formatSarif, formatGithub, and formatHtml.
 // The reporters mirror `--format`: formatText (shown here), formatJson, formatNdjson,
 // formatJunit, formatCheckstyle, formatSarif, and formatGithub.
 if (!result.ok) {
@@ -321,6 +449,14 @@ so it injects a `tlsProbe` too — otherwise the audit is skipped rather than gu
 const result = await lintDomain('example.com', {}, myFetch, async (host, port) => {
   return { protocol: 'TLSv1.3', cipher: 'TLS_AES_256_GCM_SHA384' };
 });
+```
+
+Tests and hermetic CI inject recorded responses with the same mechanism that backs `--mock-fixtures`:
+
+```ts
+import { createFixtureFetch } from 'stellar-toml-lint';
+
+const result = await lintDomain('example.com', {}, createFixtureFetch('./ci/fixtures'));
 ```
 
 Every diagnostic carries a stable `rule` id, a `severity`, a dotted `path` to the offending value, a
@@ -506,3 +642,23 @@ Not affiliated with or endorsed by the Stellar Development Foundation.
 [SEP-1]: https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0001.md
 [anchor-tests]: https://github.com/stellar/stellar-anchor-tests
 [gfi]: https://github.com/anchor-tools/stellar-toml-lint/labels/good%20first%20issue
+
+### Editor autocompletion with `--json-schema`
+
+`stellar-toml-lint --json-schema` prints a JSON Schema (Draft 2020-12) describing every SEP-1
+field — top-level keys, `[DOCUMENTATION]`, `[[PRINCIPALS]]`, `[[CURRENCIES]]`, and
+`[[VALIDATORS]]`, including the `status` and `anchor_asset_type` enums — and exits 0. Save it and
+point your editor at it, e.g. in VS Code with the Even Better TOML extension:
+
+```sh
+stellar-toml-lint --json-schema > stellar-toml.schema.json
+```
+
+```jsonc
+// .vscode/settings.json
+{
+  "evenBetterToml.schema.associations": {
+    "stellar\\.toml": "file://./stellar-toml.schema.json"
+  }
+}
+```
