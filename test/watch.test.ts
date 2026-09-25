@@ -50,4 +50,33 @@ describe('Watch mode', () => {
     child.kill('SIGKILL');
     expect(exited).toBe(false);
   });
+
+  it('re-evaluates when the watched file is modified', async () => {
+    const child = spawn('node', [CLI, watchFixture, '--watch'], {
+      env: { ...process.env, NO_COLOR: '1' },
+    });
+
+    let outputCount = 0;
+    const success = await new Promise<boolean>((resolve) => {
+      child.stdout.on('data', (data: Buffer) => {
+        const chunk = data.toString();
+        if (chunk.includes('watch.toml')) {
+          outputCount++;
+          if (outputCount === 1) {
+            // First evaluation occurred; modify the file to trigger a reload.
+            setTimeout(async () => {
+              await fs.writeFile(watchFixture, 'VERSION="3.0.0"\\n');
+            }, 100);
+          } else if (outputCount === 2) {
+            // Second evaluation occurred.
+            resolve(true);
+          }
+        }
+      });
+      setTimeout(() => resolve(false), 4000);
+    });
+
+    child.kill('SIGKILL');
+    expect(success).toBe(true);
+  });
 });
