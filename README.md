@@ -136,6 +136,7 @@ it was before.
 | `-w, --watch`             | Watch files and re-run on changes                                                 |
 
 Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
+
 | Flag                        | Effect                                                                                           |
 | --------------------------- | ------------------------------------------------------------------------------------------------ |
 | `-d, --domain <d>`          | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks                            |

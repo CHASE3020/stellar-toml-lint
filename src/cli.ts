@@ -189,7 +189,6 @@ async function main(argv: string[]): Promise<number> {
   const color = cli.color ?? shouldUseColor();
 
   const runLint = async (cli: Cli, color: boolean): Promise<number> => {
-
     if (cli.lsp) {
       // The framed stdio server: diagnostics, quick fixes, and hover. It used to
       // be `lspMain()`, which registered a stdin listener and then let `main()`
@@ -207,7 +206,8 @@ async function main(argv: string[]): Promise<number> {
     try {
       // Fixture mode replaces the transport for every network-bound check, so a
       // hermetic run can never reach the internet by accident.
-      const fetchImpl = cli.mockFixtures !== undefined ? createFixtureFetch(cli.mockFixtures) : fetch;
+      const fetchImpl =
+        cli.mockFixtures !== undefined ? createFixtureFetch(cli.mockFixtures) : fetch;
 
       if (cli.domain && cli.paths.length === 0) {
         const config = await loadConfig(process.cwd());
@@ -463,7 +463,6 @@ async function main(argv: string[]): Promise<number> {
     return watchFiles(cli.domain ? [] : paths, cli, color, runLint);
   }
   return runLint(cli, color);
-
 }
 
 /**

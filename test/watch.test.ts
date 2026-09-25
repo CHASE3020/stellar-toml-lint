@@ -17,12 +17,14 @@ describe('Watch mode', () => {
   afterAll(async () => {
     try {
       await fs.unlink(watchFixture);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it('runs indefinitely when --watch is provided and re-evaluates', async () => {
     const child = spawn('node', [CLI, watchFixture, '--watch'], {
-      env: { ...process.env, NO_COLOR: '1' }
+      env: { ...process.env, NO_COLOR: '1' },
     });
 
     const exited = await new Promise<boolean>((resolve) => {
