@@ -23,6 +23,17 @@
           doCheck = false;
           # Install the binary globally
           installFlags = [ "--ignore-scripts" ];
+          # Native build dependencies for vscode-oniguruma WASM
+          nativeBuildInputs = with pkgs; [
+            nodejs_22
+            python3
+            pkg-config
+            libtool
+            automake
+            autoconf
+            make
+            gcc
+          ];
           # Ensure the binary is linked
           postInstall = ''
             # The binary is already in dist/cli.js from the build
