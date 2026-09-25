@@ -14,6 +14,7 @@ import { horizonRules } from './horizon-check.js';
 import { orgUrlRules } from './org-url-check.js';
 import { sep38Rules } from './sep38-endpoints.js';
 import { sorobanRules } from '../soroban.js';
+import { sep12Rules } from './sep12-schema.js';
 
 /** Every rule, in report order. */
 export const allRules: Rule[] = [
@@ -32,6 +33,7 @@ export const allRules: Rule[] = [
   ...orgUrlRules,
   ...sep38Rules,
   ...sorobanRules,
+  ...sep12Rules,
 ];
 
 /** Rule ids, sorted, for `--list-rules` and docs generation. */
@@ -49,4 +51,5 @@ export {
   horizonRules,
   sep38Rules,
   sorobanRules,
+  sep12Rules,
 };
