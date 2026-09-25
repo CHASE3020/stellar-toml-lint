@@ -62,6 +62,7 @@ interface Cli {
   paths: string[];
   domain?: string;
   format: Format;
+  healthCheck?: boolean;
   strict: boolean;
   color?: boolean;
   quiet: boolean;
@@ -117,6 +118,7 @@ OPTIONS
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
+      --health-check      Ping declared endpoint URLs to ensure they are live
       --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
                           against the network
@@ -626,6 +628,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '--no-suggestions':
         cli.noSuggestions = true;
+        break;
+
+      case '--health-check':
+        cli.healthCheck = true;
         break;
 
       case '--check-network':
