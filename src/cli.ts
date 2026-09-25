@@ -467,7 +467,8 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
-  return verdict(results, { strict, maxWarnings }) ? 0 : 1;
+  const lintPassed = verdict(results, { strict, maxWarnings });
+  return lintPassed && !healthCheckFailed ? 0 : 1;
 }
 
 /**
