@@ -144,9 +144,12 @@ VALIDATORS = [{ ALIAS = "validator1", PUBLIC_KEY = "GCCCCCCCCCCCCCCCCCCCCCCCCCCC
     const policy = createSamplePolicy();
     const json = JSON.stringify(policy, null, 2);
     const fs = await import('node:fs/promises');
-    await fs.writeFile('/tmp/test-policy.json', json);
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const tmpPath = path.join(os.tmpdir(), 'test-policy.json');
+    await fs.writeFile(tmpPath, json);
 
-    const loaded = await loadPolicy('/tmp/test-policy.json');
+    const loaded = await loadPolicy(tmpPath);
     expect(loaded.name).toBe('enterprise-compliance');
     expect(loaded.rules.length).toBe(policy.rules.length);
   });
