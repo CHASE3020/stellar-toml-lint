@@ -13,6 +13,7 @@ import process from 'node:process';
 import { assertKnownRule, loadConfig } from './config.js';
 import { lint, lintDomain, finalize } from './lint.js';
 import { checkNetworkAccounts } from './network-checks.js';
+import { checkCorsPreflight } from './network/cors-preflight.js';
 import {
   formatCheckstyle,
   formatGithub,
@@ -288,6 +289,18 @@ async function main(argv: string[]): Promise<number> {
                 );
               }
             }
+          if (cli.checkNetwork) {
+            networkDiagnostics.push(
+              ...(await checkHorizon(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+              ...(await checkNetworkAccounts(fileResult.parsed, fetchImpl)),
+              ...(await checkDisplayDecimals(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+              ...(await checkSep38(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+              ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetchImpl, {
+                rules: cli.rules,
+              })),
+              ...(await checkCorsPreflight(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+            );
+          }
 
             if (cli.checkNetwork) {
               networkDiagnostics.push(
