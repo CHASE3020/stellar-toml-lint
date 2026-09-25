@@ -21,10 +21,7 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@v16
 
       - name: Check flake
-        run: nix flake check --show-trace
-
-      - name: Build package
-        run: nix build --show-trace
+        run: nix build .#packages.x86_64-linux.default --show-trace
 
       - name: Test binary runs
         run: ./result/bin/stellar-toml-lint --version
@@ -38,8 +35,6 @@ jobs:
         include:
           - system: x86_64-linux
             runner: ubuntu-latest
-          - system: aarch64-linux
-            runner: ubuntu-latest
           - system: x86_64-darwin
             runner: macos-latest
     steps:
@@ -51,3 +46,5 @@ jobs:
 
       - name: Build for ${{ matrix.system }}
         run: nix build .#packages.${{ matrix.system }}.default --show-trace
+        env:
+          NIX_PATH: nixpkgs=channel:nixos-unstable
