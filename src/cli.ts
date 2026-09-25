@@ -27,6 +27,8 @@ import { checkHorizon } from './rules/horizon-check.js';
 import { checkSep38 } from './rules/sep38-endpoints.js';
 import { checkRegulatedIssuerFlags } from './rules/currencies.js';
 import { checkContracts } from './soroban.js';
+import { checkSep10Replay } from './protocols/sep10-replay.js';
+import { checkCollateralGovernance } from './security/collateral-governance.js';
 import { allRules } from './rules/index.js';
 import { generateBadgeSvg, generateShieldsEndpoint } from './generators/badge.js';
 import {
@@ -34,12 +36,12 @@ import {
   formatAnchorPlatformYaml,
 } from './generators/anchor-platform.js';
 import { generateOpenApiSpec } from './generators/openapi.js';
+import { generateDiagram, type GraphFormat } from './generators/diagram.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
+import { loadPolicy, validatePolicy, evaluatePolicy } from './policy/engine.js';
 import { createFixtureFetch } from './mock-fixtures.js';
 import { runLspServer } from './lsp/server.js';
-import { checkSep10Replay } from './protocols/sep10-replay.js';
-import { checkCollateralGovernance } from './security/collateral-governance.js';
 import { getTomlJsonSchema } from './schema.js';
 import type { Diagnostic, LintResult, RuleOverrides, Severity } from './types.js';
 
@@ -70,6 +72,11 @@ interface Cli {
   interactive?: boolean;
   checkContracts: boolean;
   sorobanRpc?: string;
+  graph?: GraphFormat;
+  graphIncludeContracts?: boolean;
+  graphIncludeValidators?: boolean;
+  graphColorByProtocol?: boolean;
+  policy?: string;
   mockFixtures?: string;
   lsp?: boolean;
 }
@@ -86,10 +93,7 @@ USAGE
 OPTIONS
   -d, --domain <domain>   Domain serving the file. Enables CORS, content-type and
                           ORG_URL same-domain checks. Fetches unless files are given.
-  -f, --format <fmt>      text (default), json, sarif, github, junit, or html
-  -f, --format <fmt>      text (default), json, ndjson, sarif, github, or junit
-  -f, --format <fmt>      text (default), json, ndjson, sarif, github, junit,
-                          or checkstyle
+  -f, --format <fmt>      text (default), json, ndjson, sarif, github, junit, html, or checkstyle
       --strict            Treat warnings as errors
       --max-warnings <n>  Fail if warnings exceed n
       --off <rule>        Disable a rule (repeatable)
@@ -105,18 +109,13 @@ OPTIONS
       --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
                           against the network
+      --verify-sep10      Verify SEP-10 nonce uniqueness and replay resistance
       --check-contracts   Verify Soroban contract and WASM TTL liveliness
       --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
       --mock-fixtures <dir>
                           Serve network checks from recorded JSON responses under
                           <dir> instead of the network. A URL with no fixture
                           fails instead of making a request (hermetic CI)
-       --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
-                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
-                           against the network
-       --verify-sep10      Verify SEP-10 nonce uniqueness and replay resistance
-       --check-contracts   Verify Soroban contract and WASM TTL liveliness
-       --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -126,14 +125,18 @@ OPTIONS
       --export-ap-config  Export Anchor Platform YAML config to stdout
       --generate-openapi <file>
                           Generate an OpenAPI 3.1 spec (json or yaml extension)
+      --graph <fmt>       Generate architecture diagram: mermaid or dot
+      --graph-contracts   Include Soroban contracts in diagram
+      --graph-validators  Include validators in diagram
+      --graph-color       Color nodes by protocol type
+      --policy <file>     Evaluate enterprise policy file (JSON or YAML)
       --json-schema       Print a JSON Schema (Draft 2020-12) for stellar.toml
                           to stdout, for editor autocompletion via schema
                           associations
       --color / --no-color
-       --list-rules        Print every rule and exit
-   --lsp               Start the LSP server for IDE integration
-   -v, --version
-   -h, --help
+      --list-rules        Print every rule and exit
+  -v, --version
+  -h, --help
 
 CONFIG
   .stellartomlrc.json    Project defaults, discovered upward from the linted
@@ -150,7 +153,10 @@ EXAMPLES
   stellar-toml-lint public/.well-known/stellar.toml
   stellar-toml-lint --domain example.com --strict
   stellar-toml-lint -f sarif > results.sarif
-  stellar-toml-lint public/.well-known/stellar.toml --check-network \\\
+  stellar-toml-lint --graph mermaid > diagram.mmd
+  stellar-toml-lint --graph dot --graph-contracts > diagram.dot
+  stellar-toml-lint --policy policy.yaml public/.well-known/stellar.toml
+  stellar-toml-lint public/.well-known/stellar.toml --check-network \\\\
     --mock-fixtures ./test/fixtures/network
 `;
 
@@ -323,6 +329,50 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
+  if (cli.graph && firstResult?.parsed) {
+    const diagram = generateDiagram(firstResult.parsed, {
+      format: cli.graph,
+      includeContracts: cli.graphIncludeContracts,
+      includeValidators: cli.graphIncludeValidators,
+      colorByProtocol: cli.graphColorByProtocol,
+    });
+    process.stdout.write(diagram + '\n');
+  }
+
+  // Evaluate enterprise policy
+  if (cli.policy && firstResult?.parsed) {
+    const policy = await loadPolicy(cli.policy);
+    const validation = validatePolicy(policy);
+    if (!validation.valid) {
+      process.stderr.write(`Policy validation failed:\n${validation.errors.join('\n')}\n`);
+      return 2;
+    }
+    const sourcePath = cli.paths[0] ?? DEFAULT_PATH;
+    const source = sourcePath === '-' ? await readStdin() : await readFile(sourcePath, 'utf8');
+    const policyDiagnostics = evaluatePolicy(policy, firstResult.parsed, source);
+
+    // Convert policy diagnostics to standard diagnostics
+    const convertedDiagnostics: Diagnostic[] = policyDiagnostics.map((pd) => ({
+      rule: `policy/${pd.rule}`,
+      severity: pd.severity,
+      category: 'policy',
+      message: pd.message,
+      path: pd.path,
+      position: pd.position,
+      suggestion: pd.suggestion,
+      helpUri: undefined,
+    }));
+
+    if (convertedDiagnostics.length > 0 && results[0]) {
+      const finalized = finalize(
+        [...firstResult.diagnostics, ...convertedDiagnostics],
+        { strict: cli.strict },
+        firstResult.parsed,
+      );
+      results[0] = { name: results[0].name, result: finalized };
+    }
+  }
+
   if (cli.interactive && cli.format !== 'text') {
     process.stderr.write(
       `--interactive draws its own view of the findings; drop --format ${cli.format}.\n\nRun with --help for usage.\n`,
@@ -429,6 +479,9 @@ function parseArgs(argv: string[]): Cli | 'handled' {
     checkNetwork: false,
     verifySep10: false,
     checkContracts: false,
+    graphIncludeContracts: false,
+    graphIncludeValidators: false,
+    graphColorByProtocol: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -532,6 +585,31 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '--generate-openapi':
         cli.generateOpenapi = requireValue(argv, ++i, arg);
+        break;
+
+      case '--graph': {
+        const value = requireValue(argv, ++i, arg);
+        if (value !== 'mermaid' && value !== 'dot') {
+          throw new Error(`Unknown graph format "${value}". Expected mermaid or dot.`);
+        }
+        cli.graph = value;
+        break;
+      }
+
+      case '--graph-contracts':
+        cli.graphIncludeContracts = true;
+        break;
+
+      case '--graph-validators':
+        cli.graphIncludeValidators = true;
+        break;
+
+      case '--graph-color':
+        cli.graphColorByProtocol = true;
+        break;
+
+      case '--policy':
+        cli.policy = requireValue(argv, ++i, arg);
         break;
 
       case '--max-warnings': {
