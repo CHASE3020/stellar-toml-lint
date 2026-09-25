@@ -9,6 +9,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `textDocument/hover` over LSP (#36): hovering a key or a table header in `stellar.toml` shows a
+  Markdown tooltip with the qualified name (`[[CURRENCIES]].display_decimals`), the field's type
+  (`integer (0-7)`), the SEP-1 description, the permitted values where the spec enumerates them
+  (`live`, `dead`, `test`, `private`), and a link to the anchoring section of SEP-1. Documentation
+  lives in `src/spec.ts` beside the `KNOWN_*` sets the linter checks against, with a test asserting
+  the two never drift apart; whitespace, comments, and keys SEP-1 does not define show nothing.
+- `network/wrong-path` (error) under `--domain`: when `/.well-known/stellar.toml` returns HTTP 404,
+  the linter probes `https://<host>/stellar.toml` once. If the root path serves the file, the
+  diagnostic says so and points at the SEP-1 location; if the root probe also fails, behaviour is
+  unchanged (`network/unreachable` only). At most one extra request, still through the injected
+  `fetchImpl` (#3).
+- Interactive quick-fix code actions over LSP (#42): `stellar-toml-lint --lsp` runs a stdio Language
+  Server that publishes diagnostics and answers `textDocument/codeAction` with `WorkspaceEdit`
+  replacements for mechanically safe rules — `general/trailing-slash-in-endpoint`,
+  `network/passphrase` (near miss), `documentation/social-handles`, `principals/social-handles`,
+  and `documentation/phone-e164`. Diagnostics that cannot be corrected safely (parse errors,
+  missing tables) offer no action. Shared fix engine lives in `src/fix.ts` for `--fix` (#9) to reuse.
+
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
   overrides it. Covered by `test/no-color.test.ts` (#148).
@@ -16,6 +34,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `--format junit` emits a JUnit XML test report for CI dashboards that chart test results (Jenkins,
   Bamboo, CircleCI, Azure DevOps). Error-severity findings are reported as `<failure>` elements and
   warnings as `<error>` elements, so a dashboard counting failures matches the exit code (#143).
+
+- `--format checkstyle` emits Checkstyle XML for CI dashboards that ingest the Checkstyle schema
+  (Jenkins Warnings NG, Java-adjacent pipelines) (#8): one `<file>` per linted file, one `<error>`
+  per diagnostic with `line`, `column`, `severity`, `message`, and `source` (the rule id).
 
 - `validators/invalid-history-url` (error) validates each `[[VALIDATORS]].HISTORY` as a well-formed
   archive URL, including `{0}` template handling.
@@ -35,6 +57,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   carries a `buy_assets` array of valid price objects, and probes `/quote` for 5xx or non-JSON 200
   answers — so a quote server returning 500s or malformed JSON fails the run instead of surfacing
   later as wallets unable to calculate transaction amounts.
+
+### Fixed
+
+- `--lsp` actually serves the protocol now. `main()` called the line-based `lspMain()`, which
+  registered a stdin listener and then fell through to `process.exit`, so the process printed
+  nothing and exited before a client could send a message. The CLI runs the framed stdio server
+  (`src/lsp/server.ts`) instead — diagnostics, quick-fix code actions, and hover — and the
+  unreachable server behind it is gone.
 
 ### Changed
 

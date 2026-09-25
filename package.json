@@ -44,8 +44,10 @@
   },
   "files": [
     "dist",
+    "templates",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "packaging/homebrew/stellar-toml-lint.rb"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -57,15 +59,16 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "bench": "npx tsx benchmarks/runner.ts"
   },
   "dependencies": {
     "@stellar/stellar-base": "^15.0.0",
     "smol-toml": "^1.7.1"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
-    "@types/yaml": "^1.9.6",
     "@vitest/coverage-v8": "^2.1.8",
     "eslint": "^9.17.0",
     "fast-xml-parser": "^5.11.1",
@@ -73,6 +76,8 @@
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.0",
     "vitest": "^2.1.8",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2",
     "yaml": "^2.9.1"
   },
   "repository": {
