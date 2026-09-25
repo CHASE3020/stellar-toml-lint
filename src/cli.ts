@@ -445,24 +445,6 @@ async function main(argv: string[]): Promise<number> {
         ...(cli.webhookSlack !== undefined ? { slack: cli.webhookSlack } : {}),
         ...(cli.webhookDiscord !== undefined ? { discord: cli.webhookDiscord } : {}),
       });
-  let healthCheckFailed = false;
-  if (cli.healthCheck) {
-    for (const { result } of results) {
-      const hcResults = await runHealthCheck(result);
-      if (hcResults.length > 0) {
-        process.stdout.write(formatHealthCheckTable(hcResults, color));
-        if (hcResults.some((r) => r.error || (r.statusCode && r.statusCode >= 400))) {
-          healthCheckFailed = true;
-        }
-      }
-    }
-  }
-
-  if (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined) {
-    const deliveries = await deliverWebhooks(results, {
-      ...(cli.webhookSlack !== undefined ? { slack: cli.webhookSlack } : {}),
-      ...(cli.webhookDiscord !== undefined ? { discord: cli.webhookDiscord } : {}),
-    });
 
       for (const delivery of deliveries) {
         if (delivery.ok) continue;
@@ -476,7 +458,21 @@ async function main(argv: string[]): Promise<number> {
       }
     }
 
-    return verdict(results, { strict, maxWarnings }) ? 0 : 1;
+    let healthCheckFailed = false;
+    if (cli.healthCheck) {
+      for (const { result } of results) {
+        const hcResults = await runHealthCheck(result);
+        if (hcResults.length > 0) {
+          process.stdout.write(formatHealthCheckTable(hcResults, color));
+          if (hcResults.some((r) => r.error || (r.statusCode && r.statusCode >= 400))) {
+            healthCheckFailed = true;
+          }
+        }
+      }
+    }
+
+    const lintPassed = verdict(results, { strict, maxWarnings });
+    return lintPassed && !healthCheckFailed ? 0 : 1;
   };
 
   const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
@@ -484,8 +480,6 @@ async function main(argv: string[]): Promise<number> {
     return watchFiles(cli.domain ? [] : paths, cli, color, runLint);
   }
   return runLint(cli, color);
-  const lintPassed = verdict(results, { strict, maxWarnings });
-  return lintPassed && !healthCheckFailed ? 0 : 1;
 }
 
 /**
