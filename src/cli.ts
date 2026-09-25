@@ -8,7 +8,6 @@
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { watch } from 'node:fs';
-import { basename } from 'node:path';
 import { basename, dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { assertKnownRule, loadConfig } from './config.js';
@@ -64,6 +63,7 @@ interface Cli {
   domain?: string;
   format: Format;
   strict: boolean;
+  watch?: boolean;
   color?: boolean;
   quiet: boolean;
   showHelp: boolean;
@@ -78,7 +78,6 @@ interface Cli {
   webhookSlack?: string;
   webhookDiscord?: string;
   interactive?: boolean;
-  watch?: boolean;
   checkContracts: boolean;
   sorobanRpc?: string;
   graph?: GraphFormat;
@@ -114,7 +113,6 @@ OPTIONS
       --warn <rule>       Lower a rule to warning (repeatable)
   -i, --interactive       Full-screen dashboard to walk the findings. Needs a TTY;
                           without one the text reporter is used instead
-  -w, --watch             Watch files and re-run on changes
       --lsp               Run as a Language Server on stdio (diagnostics,
                           quick-fix code actions, and SEP-1 hover docs)
   -q, --quiet             Report errors only
@@ -191,98 +189,115 @@ async function main(argv: string[]): Promise<number> {
   const color = cli.color ?? shouldUseColor();
 
   const runLint = async (cli: Cli, color: boolean): Promise<number> => {
+
+    if (cli.lsp) {
+      // The framed stdio server: diagnostics, quick fixes, and hover. It used to
+      // be `lspMain()`, which registered a stdin listener and then let `main()`
+      // fall through to `process.exit` — so `--lsp` printed nothing and exited
+      // before a client could send a single message.
+      await runLspServer();
+      return 0;
+    }
+
     const results: { name: string; result: LintResult }[] = [];
+    // Project defaults from .stellartomlrc.json, overridden by any CLI flag.
+    let strict = cli.strict;
+    let maxWarnings = cli.maxWarnings;
 
     try {
+      // Fixture mode replaces the transport for every network-bound check, so a
+      // hermetic run can never reach the internet by accident.
+      const fetchImpl = cli.mockFixtures !== undefined ? createFixtureFetch(cli.mockFixtures) : fetch;
+
       if (cli.domain && cli.paths.length === 0) {
-        results.push({
-          name: cli.domain,
-          result: await lintDomain(cli.domain, {
-            strict: cli.strict,
-            rules: cli.rules,
-            checkNetwork: cli.checkNetwork,
-          }),
-
-  if (cli.lsp) {
-    // The framed stdio server: diagnostics, quick fixes, and hover. It used to
-    // be `lspMain()`, which registered a stdin listener and then let `main()`
-    // fall through to `process.exit` — so `--lsp` printed nothing and exited
-    // before a client could send a single message.
-    await runLspServer();
-    return 0;
-  }
-
-  const results: { name: string; result: LintResult }[] = [];
-  // Project defaults from .stellartomlrc.json, overridden by any CLI flag.
-  let strict = cli.strict;
-  let maxWarnings = cli.maxWarnings;
-
-  try {
-    // Fixture mode replaces the transport for every network-bound check, so a
-    // hermetic run can never reach the internet by accident.
-    const fetchImpl = cli.mockFixtures !== undefined ? createFixtureFetch(cli.mockFixtures) : fetch;
-
-    if (cli.domain && cli.paths.length === 0) {
-      const config = await loadConfig(process.cwd());
-      strict = strict || config.strict;
-      maxWarnings ??= config.maxWarnings;
-      results.push({
-        name: cli.domain,
-        result: await lintDomain(
-          cli.domain,
-          {
-            strict,
-            rules: { ...config.rules, ...cli.rules },
-            checkNetwork: cli.checkNetwork,
-          },
-          fetchImpl,
-        ),
-      });
-    } else {
-      const paths = await expandInputs(cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH]);
-      for (const path of paths) {
-        const config = await loadConfig(path === '-' ? process.cwd() : dirname(resolve(path)));
-        const fileStrict = cli.strict || config.strict;
+        const config = await loadConfig(process.cwd());
         strict = strict || config.strict;
         maxWarnings ??= config.maxWarnings;
-        const rules = { ...config.rules, ...cli.rules };
-
-        const source = path === '-' ? await readStdin() : await readFile(path, 'utf8');
-        let fileResult = lint(source, {
-          strict: fileStrict,
-          rules,
-          checkNetwork: cli.checkNetwork,
-          ...(cli.domain ? { domain: cli.domain } : {}),
+        results.push({
+          name: cli.domain,
+          result: await lintDomain(
+            cli.domain,
+            {
+              strict,
+              rules: { ...config.rules, ...cli.rules },
+              checkNetwork: cli.checkNetwork,
+            },
+            fetchImpl,
+          ),
         });
       } else {
-        const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
+        const paths = await expandInputs(cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH]);
         for (const path of paths) {
+          const config = await loadConfig(path === '-' ? process.cwd() : dirname(resolve(path)));
+          const fileStrict = cli.strict || config.strict;
+          strict = strict || config.strict;
+          maxWarnings ??= config.maxWarnings;
+          const rules = { ...config.rules, ...cli.rules };
+
           const source = path === '-' ? await readStdin() : await readFile(path, 'utf8');
           let fileResult = lint(source, {
-            strict: cli.strict,
-            rules: cli.rules,
+            strict: fileStrict,
+            rules,
             checkNetwork: cli.checkNetwork,
             ...(cli.domain ? { domain: cli.domain } : {}),
           });
 
-          if (fileResult.parsed && (cli.checkNetwork || cli.checkContracts)) {
+          if (
+            fileResult.parsed &&
+            (cli.checkNetwork || cli.checkContracts || cli.domain !== undefined)
+          ) {
             const networkDiagnostics: Diagnostic[] = [];
+
+            // SEP-6 is reachable under either flag: `--domain` already means the
+            // file was fetched from a live host, and `--check-network` is the
+            // explicit opt-in for a local file.
+            if (cli.checkNetwork || cli.domain !== undefined) {
+              networkDiagnostics.push(
+                ...(await checkSep6(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+              );
+            }
 
             if (cli.checkNetwork) {
               networkDiagnostics.push(
-                ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
-                ...(await checkNetworkAccounts(fileResult.parsed)),
-                ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
-                ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
-                ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetch, {
+                ...(await checkHorizon(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkNetworkAccounts(fileResult.parsed, fetchImpl)),
+                ...(await checkDisplayDecimals(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkSep38(fileResult.parsed, fetchImpl, { rules: cli.rules })),
+                ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetchImpl, {
                   rules: cli.rules,
+                })),
+              );
+            }
+
+            if (cli.verifySep10 && cli.checkNetwork) {
+              const webAuthEndpoint = (fileResult.parsed as Record<string, unknown>)
+                .WEB_AUTH_ENDPOINT;
+              if (typeof webAuthEndpoint === 'string') {
+                const signingKey =
+                  typeof (fileResult.parsed as Record<string, unknown>).SIGNING_KEY === 'string'
+                    ? ((fileResult.parsed as Record<string, unknown>).SIGNING_KEY as string)
+                    : '';
+                networkDiagnostics.push(
+                  ...(await checkSep10Replay(signingKey, new URL(webAuthEndpoint).origin, {
+                    rules: cli.rules,
+                    fetchImpl: fetch,
+                  })),
+                );
+              }
+            }
+
+            if (cli.checkNetwork) {
+              networkDiagnostics.push(
+                ...(await checkCollateralGovernance(fileResult.parsed, {
+                  rules: cli.rules,
+                  fetchImpl: fetch,
                 })),
               );
             }
 
             if (cli.checkContracts) {
               networkDiagnostics.push(
-                ...(await checkContracts(fileResult.parsed, fetch, {
+                ...(await checkContracts(fileResult.parsed, fetchImpl, {
                   rules: cli.rules,
                   ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
                 })),
@@ -292,84 +307,16 @@ async function main(argv: string[]): Promise<number> {
             if (networkDiagnostics.length > 0) {
               fileResult = finalize(
                 [...fileResult.diagnostics, ...networkDiagnostics],
-                { strict: cli.strict },
+                { strict: fileStrict },
                 fileResult.parsed,
               );
             }
-        if (fileResult.parsed && (cli.checkNetwork || cli.checkContracts)) {
-        if (
-          fileResult.parsed &&
-          (cli.checkNetwork || cli.checkContracts || cli.domain !== undefined)
-        ) {
-          const networkDiagnostics: Diagnostic[] = [];
-
-          // SEP-6 is reachable under either flag: `--domain` already means the
-          // file was fetched from a live host, and `--check-network` is the
-          // explicit opt-in for a local file.
-          if (cli.checkNetwork || cli.domain !== undefined) {
-            networkDiagnostics.push(
-              ...(await checkSep6(fileResult.parsed, fetchImpl, { rules: cli.rules })),
-            );
-          }
-
-          if (cli.checkNetwork) {
-            networkDiagnostics.push(
-              ...(await checkHorizon(fileResult.parsed, fetchImpl, { rules: cli.rules })),
-              ...(await checkNetworkAccounts(fileResult.parsed, fetchImpl)),
-              ...(await checkDisplayDecimals(fileResult.parsed, fetchImpl, { rules: cli.rules })),
-              ...(await checkSep38(fileResult.parsed, fetchImpl, { rules: cli.rules })),
-              ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetchImpl, {
-                rules: cli.rules,
-              })),
-            );
-          }
-
-          if (cli.verifySep10 && cli.checkNetwork) {
-            const webAuthEndpoint = (fileResult.parsed as Record<string, unknown>)
-              .WEB_AUTH_ENDPOINT;
-            if (typeof webAuthEndpoint === 'string') {
-              const signingKey =
-                typeof (fileResult.parsed as Record<string, unknown>).SIGNING_KEY === 'string'
-                  ? ((fileResult.parsed as Record<string, unknown>).SIGNING_KEY as string)
-                  : '';
-              networkDiagnostics.push(
-                ...(await checkSep10Replay(signingKey, new URL(webAuthEndpoint).origin, {
-                  rules: cli.rules,
-                  fetchImpl: fetch,
-                })),
-              );
-            }
-          }
-
-          if (cli.checkNetwork) {
-            networkDiagnostics.push(
-              ...(await checkCollateralGovernance(fileResult.parsed, {
-                rules: cli.rules,
-                fetchImpl: fetch,
-              })),
-            );
-          }
-
-          if (cli.checkContracts) {
-            networkDiagnostics.push(
-              ...(await checkContracts(fileResult.parsed, fetchImpl, {
-                rules: cli.rules,
-                ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
-              })),
-            );
           }
 
           results.push({
             name: path === '-' ? 'stdin' : path,
             result: fileResult,
           });
-          if (networkDiagnostics.length > 0) {
-            fileResult = finalize(
-              [...fileResult.diagnostics, ...networkDiagnostics],
-              { strict: fileStrict },
-              fileResult.parsed,
-            );
-          }
         }
       }
     } catch (error) {
@@ -410,58 +357,50 @@ async function main(argv: string[]): Promise<number> {
         await writeFile(cli.generateOpenapi, JSON.stringify(spec, null, 2) + '\n');
       }
     }
-  }
 
-  if (cli.graph && firstResult?.parsed) {
-    const diagram = generateDiagram(firstResult.parsed, {
-      format: cli.graph,
-      includeContracts: cli.graphIncludeContracts,
-      includeValidators: cli.graphIncludeValidators,
-      colorByProtocol: cli.graphColorByProtocol,
-    });
-    process.stdout.write(diagram + '\n');
-  }
-
-  // Evaluate enterprise policy
-  if (cli.policy && firstResult?.parsed) {
-    const policy = await loadPolicy(cli.policy);
-    const validation = validatePolicy(policy);
-    if (!validation.valid) {
-      process.stderr.write(`Policy validation failed:\n${validation.errors.join('\n')}\n`);
-      return 2;
+    if (cli.graph && firstResult?.parsed) {
+      const diagram = generateDiagram(firstResult.parsed, {
+        format: cli.graph,
+        includeContracts: cli.graphIncludeContracts,
+        includeValidators: cli.graphIncludeValidators,
+        colorByProtocol: cli.graphColorByProtocol,
+      });
+      process.stdout.write(diagram + '\n');
     }
-    const sourcePath = cli.paths[0] ?? DEFAULT_PATH;
-    const source = sourcePath === '-' ? await readStdin() : await readFile(sourcePath, 'utf8');
-    const policyDiagnostics = evaluatePolicy(policy, firstResult.parsed, source);
 
-    // Convert policy diagnostics to standard diagnostics
-    const convertedDiagnostics: Diagnostic[] = policyDiagnostics.map((pd) => ({
-      rule: `policy/${pd.rule}`,
-      severity: pd.severity,
-      category: 'policy',
-      message: pd.message,
-      path: pd.path,
-      position: pd.position,
-      suggestion: pd.suggestion,
-      helpUri: undefined,
-    }));
+    // Evaluate enterprise policy
+    if (cli.policy && firstResult?.parsed) {
+      const policy = await loadPolicy(cli.policy);
+      const validation = validatePolicy(policy);
+      if (!validation.valid) {
+        process.stderr.write(`Policy validation failed:\n${validation.errors.join('\n')}\n`);
+        return 2;
+      }
+      const sourcePath = cli.paths[0] ?? DEFAULT_PATH;
+      const source = sourcePath === '-' ? await readStdin() : await readFile(sourcePath, 'utf8');
+      const policyDiagnostics = evaluatePolicy(policy, firstResult.parsed, source);
 
-    if (convertedDiagnostics.length > 0 && results[0]) {
-      const finalized = finalize(
-        [...firstResult.diagnostics, ...convertedDiagnostics],
-        { strict: cli.strict },
-        firstResult.parsed,
-      );
-      results[0] = { name: results[0].name, result: finalized };
+      // Convert policy diagnostics to standard diagnostics
+      const convertedDiagnostics: Diagnostic[] = policyDiagnostics.map((pd) => ({
+        rule: `policy/${pd.rule}`,
+        severity: pd.severity,
+        category: 'policy',
+        message: pd.message,
+        path: pd.path,
+        position: pd.position,
+        suggestion: pd.suggestion,
+        helpUri: undefined,
+      }));
+
+      if (convertedDiagnostics.length > 0 && results[0]) {
+        const finalized = finalize(
+          [...firstResult.diagnostics, ...convertedDiagnostics],
+          { strict: cli.strict },
+          firstResult.parsed,
+        );
+        results[0] = { name: results[0].name, result: finalized };
+      }
     }
-  }
-
-  if (cli.interactive && cli.format !== 'text') {
-    process.stderr.write(
-      `--interactive draws its own view of the findings; drop --format ${cli.format}.\n\nRun with --help for usage.\n`,
-    );
-    return 2;
-  }
 
     if (cli.interactive && cli.format !== 'text') {
       process.stderr.write(
@@ -469,15 +408,6 @@ async function main(argv: string[]): Promise<number> {
       );
       return 2;
     }
-
-    // One line closing a multi-file run, so a CI log answers "did the whole
-    // set pass?" without anyone counting per-file blocks. Only the text
-    // reporter gets it: appending prose to JSON, SARIF, or XML would break the
-    // parsers those formats exist for.
-    if (results.length > 1 && cli.format === 'text') {
-      process.stdout.write(formatSummary(results, { color }));
-    }
-  }
 
     // A dashboard written into a pipe or a file would corrupt the output it is
     // meant to replace, so anything that is not a terminal keeps the text report.
@@ -497,9 +427,17 @@ async function main(argv: string[]): Promise<number> {
 
         process.stdout.write(render(filtered, name, cli, color));
       }
+
+      // One line closing a multi-file run, so a CI log answers "did the whole
+      // set pass?" without anyone counting per-file blocks. Only the text
+      // reporter gets it: appending prose to JSON, SARIF, or XML would break the
+      // parsers those formats exist for.
+      if (results.length > 1 && cli.format === 'text') {
+        process.stdout.write(formatSummary(results, { color }));
+      }
     }
 
-    if (!cli.watch && (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined)) {
+    if (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined) {
       const deliveries = await deliverWebhooks(results, {
         ...(cli.webhookSlack !== undefined ? { slack: cli.webhookSlack } : {}),
         ...(cli.webhookDiscord !== undefined ? { discord: cli.webhookDiscord } : {}),
@@ -517,7 +455,7 @@ async function main(argv: string[]): Promise<number> {
       }
     }
 
-    return verdict(results, cli) ? 0 : 1;
+    return verdict(results, { strict, maxWarnings }) ? 0 : 1;
   };
 
   const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
@@ -525,7 +463,7 @@ async function main(argv: string[]): Promise<number> {
     return watchFiles(cli.domain ? [] : paths, cli, color, runLint);
   }
   return runLint(cli, color);
-  return verdict(results, { strict, maxWarnings }) ? 0 : 1;
+
 }
 
 /**
