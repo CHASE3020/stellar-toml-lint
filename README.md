@@ -111,32 +111,6 @@ it was before.
 
 ### Options
 
-| Flag                      | Effect                                                                            |
-| ------------------------- | --------------------------------------------------------------------------------- |
-| `-d, --domain <d>`        | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks             |
-| `-f, --format <fmt>`      | `text` (default), `json`, `ndjson`, `sarif`, `github`, `junit`                    |
-| `--strict`                | Treat warnings as errors                                                          |
-| `--max-warnings <n>`      | Fail if warnings exceed `n`                                                       |
-| `--check-network`         | Verify accounts, `HORIZON_URL`, SEP-8 flags, and `ANCHOR_QUOTE_SERVER` online     |
-| `--verify-sep10`          | Verify SEP-10 nonce uniqueness and replay resistance (requires --check-network)   |
-| `--check-contracts`       | Verify Soroban contract and WASM TTL liveliness online                            |
-| `--soroban-rpc <url>`     | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`) |
-| `--webhook-slack <url>`   | POST a Slack Block Kit card with the run summary                                  |
-| `--webhook-discord <url>` | POST a Discord embed with the run summary                                         |
-| `--off <rule>`            | Disable a rule (repeatable)                                                       |
-| `--error <rule>`          | Raise a rule to error (repeatable)                                                |
-| `--warn <rule>`           | Lower a rule to warning (repeatable)                                              |
-| `-q, --quiet`             | Show errors only                                                                  |
-| `--show-help-urls`        | Print the spec link for each finding                                              |
-| `--list-rules`            | Print every rule and exit                                                         |
-| `--no-suggestions`        | Hide diagnostic suggestions in the output                                         |
-| `--color`                 | Force colour on, overriding `NO_COLOR`                                            |
-| `--no-color`              | Force colour off                                                                  |
-| `-i, --interactive`       | Full-screen dashboard to walk the findings (falls back to text)                   |
-| `-w, --watch`             | Watch files and re-run on changes                                                 |
-
-Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failure.
-
 | Flag                        | Effect                                                                                           |
 | --------------------------- | ------------------------------------------------------------------------------------------------ |
 | `-d, --domain <d>`          | Serving domain. Enables CORS, content-type, TLS, and `ORG_URL` checks                            |
@@ -160,6 +134,7 @@ Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failur
 | `--no-suggestions`          | Hide diagnostic suggestions in the output                                                        |
 | `--color`                   | Force colour on, overriding `NO_COLOR`                                                           |
 | `--no-color`                | Force colour off                                                                                 |
+| `-w, --watch`               | Watch files and re-run on changes                                                                |
 | `-i, --interactive`         | Full-screen dashboard to walk the findings (falls back to text)                                  |
 | `--lsp`                     | Run as a Language Server on stdio (diagnostics, quick-fixes, hover)                              |
 | `--graph <fmt>`             | Generate architecture diagram: `mermaid` or `dot`                                                |
@@ -195,7 +170,6 @@ Exit codes: **0** no errors, **1** problems found, **2** bad usage or I/O failur
 | `--no-suggestions`          | Hide diagnostic suggestions in the output                                                                               |
 | `--color`                   | Force colour on, overriding `NO_COLOR`                                                                                  |
 | `--no-color`                | Force colour off                                                                                                        |
-| `-i, --interactive`         | Full-screen dashboard to walk the findings (falls back to text)                                                         |
 | `--lsp`                     | Run as a Language Server on stdio (diagnostics, quick-fixes, hover)                                                     |
 | `--graph <fmt>`             | Generate architecture diagram: `mermaid` or `dot`                                                                       |
 | `--graph-contracts`         | Include Soroban contracts in diagram                                                                                    |
