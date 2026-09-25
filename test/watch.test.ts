@@ -36,4 +36,18 @@ describe('Watch mode', () => {
     child.kill('SIGKILL');
     expect(exited).toBe(false);
   });
+
+  it('runs indefinitely when -w is provided and re-evaluates', async () => {
+    const child = spawn('node', [CLI, watchFixture, '-w'], {
+      env: { ...process.env, NO_COLOR: '1' },
+    });
+
+    const exited = await new Promise<boolean>((resolve) => {
+      child.on('exit', () => resolve(true));
+      setTimeout(() => resolve(false), 1500);
+    });
+
+    child.kill('SIGKILL');
+    expect(exited).toBe(false);
+  });
 });

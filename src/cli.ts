@@ -857,14 +857,22 @@ async function watchFiles(
   for (const path of paths) {
     if (path === '-') continue; // can't watch stdin
     let timer: NodeJS.Timeout | null = null;
-    watch(path, () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(async () => {
-        timer = null;
-        if (process.stdout.isTTY) process.stdout.write('\x1Bc');
-        await runLint(cli, color);
-      }, 100);
-    });
+    try {
+      const watcher = watch(path, () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(async () => {
+          timer = null;
+          if (process.stdout.isTTY) process.stdout.write('\x1Bc');
+          await runLint(cli, color);
+        }, 100);
+      });
+      watcher.on('error', (error) => {
+        process.stderr.write(`Warning: Watcher error on ${path}: ${error.message}\n`);
+      });
+    } catch (error) {
+      const e = error as Error;
+      process.stderr.write(`Warning: Could not watch ${path}: ${e.message}\n`);
+    }
   }
 
   // Wait indefinitely, exit on SIGINT
