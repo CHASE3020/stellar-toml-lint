@@ -42,6 +42,7 @@ import {
 import { generateOpenApiSpec } from './generators/openapi.js';
 import { generateDiagram, type GraphFormat } from './generators/diagram.js';
 import { deliverWebhooks, isSupportedWebhookUrl } from './reporters/webhook.js';
+import { runHealthCheck, formatHealthCheckTable } from './health-check.js';
 import { runDashboard, supportsDashboard } from './ui/dashboard.js';
 import { loadPolicy, validatePolicy, evaluatePolicy } from './policy/engine.js';
 import { createFixtureFetch } from './mock-fixtures.js';
@@ -61,6 +62,7 @@ interface Cli {
   paths: string[];
   domain?: string;
   format: Format;
+  healthCheck?: boolean;
   strict: boolean;
   color?: boolean;
   quiet: boolean;
@@ -116,6 +118,7 @@ OPTIONS
   -q, --quiet             Report errors only
       --show-help-urls    Print the spec link for each finding
       --no-suggestions    Hide diagnostic suggestions in the output
+      --health-check      Ping declared endpoint URLs to ensure they are live
       --check-network     Verify SIGNING_KEY, ACCOUNTS, HORIZON_URL, SEP-8
                           regulated issuer flags, and ANCHOR_QUOTE_SERVER
                           against the network
@@ -433,6 +436,19 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
+  let healthCheckFailed = false;
+  if (cli.healthCheck) {
+    for (const { result } of results) {
+      const hcResults = await runHealthCheck(result);
+      if (hcResults.length > 0) {
+        process.stdout.write(formatHealthCheckTable(hcResults, color));
+        if (hcResults.some((r) => r.error || (r.statusCode && r.statusCode >= 400))) {
+          healthCheckFailed = true;
+        }
+      }
+    }
+  }
+
   if (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined) {
     const deliveries = await deliverWebhooks(results, {
       ...(cli.webhookSlack !== undefined ? { slack: cli.webhookSlack } : {}),
@@ -451,7 +467,8 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
-  return verdict(results, { strict, maxWarnings }) ? 0 : 1;
+  const lintPassed = verdict(results, { strict, maxWarnings });
+  return lintPassed && !healthCheckFailed ? 0 : 1;
 }
 
 /**
@@ -612,6 +629,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '--no-suggestions':
         cli.noSuggestions = true;
+        break;
+
+      case '--health-check':
+        cli.healthCheck = true;
         break;
 
       case '--check-network':
